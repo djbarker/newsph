@@ -1,0 +1,355 @@
+include "spud_base.rnc"
+
+start = (
+
+	## Options and configuration for the SPH simulation.
+	element options {
+	
+		## System geometry setup.
+		element geometry {
+		
+			## Number of spatial dimensions.
+			## <b>Once set this cannot be changed.</b>
+			element dimension {
+				element integer_value {
+					attribute rank {"0"},
+					("3"|"2")
+				}
+			},
+			
+			## Domain extent.
+			element period { real_dim_vector },
+						
+			## Rescales the simulation by this factor.
+			element scale { real }?,
+		},
+	
+		## Options for file input and output.
+		element file_io {
+
+			## The directory for output files.
+			element directory { anystring },
+
+			## The filename root for output files.
+			element root { anystring }?,
+
+			## Wall geometry input files.
+			element walls { filename }+
+		},
+	
+		## Options relating to the SPH numerical method
+		element sph_options {
+			## Speed of sound in the 'reference' fluid.
+			element c0_ref { real },
+			
+			## Fluid phase to which the reference speed of sound applies. Speeds of sound in other phases are calcualted based on this.
+			## <i>Default value: zero.</i>
+			element fluid_ref { integer }?,
+			
+			## Resolution
+			element resolution {
+				## The SPH smoothing length.
+				element h { real } |
+				
+				## The particle spacing length/
+				element dx { real }
+			},
+			
+			## h_factor specifies how many particles there are per smoothing length.
+			## The average particle spacing is given by <i>dx = h/h_factor</i>.
+			element h_factor { real },
+			
+			## Smoothing kernel to use for interpolating values and gradients in the simulation.
+			## <i>Default value: "Quntic Spline".</i>
+			element w_type { element string_value{
+					"Gaussian"|"Quadratic"|"Cubic Spline"|"Quintic Spline"|"Arb n 4"
+				}
+			}?,
+			
+			## Viscosity type.
+			## <i>Default value: "Laminar"</i>
+			element viscosity_type { element string_value { 
+					"Laminar"|"Turbulent LES" 
+					}
+			}?,
+			
+			## Artificial pressure is used to prevent tensile instability.
+			## If this element is present then it will be calculated, if not it will be switched off.
+			element artificial_pressure {
+				element epsilon { real },
+				element n { real }
+			}?,
+			
+			## Remove particles which have leaked from the simulation.
+			element remove_leak { empty }?,
+			
+			## Can the walls cross the periods?
+			element cross_period_walls { empty }?,
+			
+			## Multi Phase Options.
+			element multi_phase
+			{
+				## Number of fluid phases (including free space if free-surface surface tension is desired).
+				element num_colours { integer },
+			
+				## Free-surface colour. The colour which represents "empty" space,
+				## i.e. space where a gas might be but which is not being actively simulated.
+				## If no colour interactions are specified this tag will be ignored.
+				element free_surface_colour { integer }?,
+			
+				## Surface force sharpening factor. Sharpening the region over which the CSF force
+				## acts can improve the spurious velocity currents at interfaces. The new with over which
+				## surface forces act will be <i>ssf_factor</i>*(smoothing length). Cannot be larger than 2 (values larger than this will be taken as 2).
+				## <i>Default value: 0.8</i>
+				element ssf_factor { real }?,
+			
+				## Colour interactions. Surface tension coefficients between each pair of fluid phases.
+				## If there are N phases then <i>shape</i> must real 'N N'. If this element is abscent then no surface forces will be calculated.
+				element colour_interactions { real_tensor }?
+			}?,
+
+			## Options relating to the calculation of density in the SPH code.
+			element density_options
+			{
+			
+				## Use direct density for fluid particles. Density is governed purely by particles positions.
+				element direct_density { empty } |
+			
+				## Use integrated density. Density is goverened by time-stepping density according to the continuity equation.
+				element integrated_density
+				{
+					## If the domain is filled we can calculate the density of boundary particles using direct density.
+					element filled { empty }?,
+					
+					## Integrated density values can wander from their correct values. We can periodically reinitialize the density using
+					## the value calculated by direct density. If this element is present this will be done.
+					element reaverage {
+					
+						## Number of iterations between each reaveraging. <i>Default value: 20.</i>
+						element interval{ integer }?,
+						
+						## Should we also renormalise?
+						element renormalise{ empty }?
+					}?
+				}
+			},
+			
+			## Sponge regions used to set velocity of flow.
+			## The flow feels an acceleration which acts to change its velocity to a desired value
+			## the acceleration is large the larger the velocity discrepency.
+			element sponge_region
+			{
+				## Libspud requires each element of the same type to have a unique name.
+				attribute name { string },
+				
+				## The bottom-left point of the region.
+				element x_bl { real_dim_vector },
+				
+				## The top-right point of the region.
+				element x_tr { real_dim_vector },
+			
+				## The desired velocity of flow in the region.
+				element velocity { real_dim_vector },
+				
+				## The strength of the forcing. Typically lambda will need to be around 10^3 - 10^4 to work properly but care must
+				## be taken since too large a value could cause the simulation to become unstable and too small a value will cause
+				## the sponge region to be ineffective.
+				element lambda { real },
+				
+				## Axis along which the 'sponginess' is.
+				element axis { integer },
+				
+				## Sponge regions can be set to act on one fluid phase only.
+				## The number here must correspond to one of the colours of the fluid_region elements.
+				## By default the sponge region will act on all fluid phases.
+				element colour { integer }?
+			}*
+		},
+		
+		## Options relating to the physics of the system.
+		element phys_options {
+
+			## Vector giving the acceleration due to gravity.
+			## <i>Default value: (0,0,0).</i>
+			element g { real_dim_vector }?,
+			
+			## Background pressure. Must be zero if there are any free surfaces.
+			## <i>Default value: 0.</i>
+			element P_atmos { real }?,
+			
+			## Periodic pressure drop term:
+			## this can be used to make one of the phases be in hydrostatic equillibrium under gravity in periodic BCs. 
+			## For a fluid to be in equillibrium it is necessary that <i>dP = -(density)*(gravity)*(period length)</i>,
+			## where <i>(period length)</i> is the unscaled period length.
+			element dP_periodic { real_dim_vector }?
+		},
+		
+		## Options for additional physical processes such as thermal expansion and scalar advection/diffusion.
+		element additional_physics_options
+		{
+			## Enable the simulation of flows affected by temperature using the Boussinesq approximation.
+			element thermal
+			{ 
+				## The temperature relative to which all other temperatures are defined.
+				element reference_temperature { real }
+			}?
+		}?,
+		
+		## Options for controlling time-stepping
+		element time_options
+		{
+			## Maximimum time to simulate.
+			element t_max { real },
+			
+			## Smallest allowable time-step. <i>Default value: 1.0E-7.</i>
+			element dt_min { real }?,
+			
+			## Largest allowable time-step. <i>Default value: 1.0E10.</i>
+			element dt_max { real }?,
+			
+			## Time interval at which to output results.
+			element dt_write { real },
+			
+			## Convergence factor; the factor by which the adaptive time-step used is smaller than the minimum necessary timestep.
+			## <i>Default value: 0.2.</i>
+			element convergence_fac { real }?,
+			
+			## Rebalancing interval: how often to balance the load between processors. <i> Default value: 20</i>
+			element rebalance_interval { integer }?			
+		},
+		
+		## Defines a "fluid region" a recangle (cuboid in 3D) of space where the fluid has the same properties.
+		element fluid_region
+		{
+			## Libspud requires each element of the same type to have a unique name.
+			attribute name { string },
+		
+			## The bottom-left point of the fluid region.
+			element x_bl { real_dim_vector },
+			
+			## The top-right point of the fluid region.
+			element x_tr { real_dim_vector },
+			
+			## Fill type specifies which algorithm should be used to place SPH particles into the domain.
+			element fill_type { 
+
+				## Flood filling algorithm.
+				element Flood_Fill
+				{
+				
+					## Point to start filling the fluid region from.
+					element fill_start_point { real_dim_vector },
+					
+					## Calculate the correct pressure head under gravity necessary for hydrostatic equilibrium initial conditions.
+					element hydrostatic { empty }?
+				
+				} |
+				
+				## Full fill algorithm.
+				element Full_Fill { empty } |
+				
+				## Outer fill algorithm. <b>(Not functional currently!)</b>
+				element Outer_Fill { empty } |
+				
+				## Converts already placed particles (usually with flood-fill) to particles of a different phase.
+				element Convert { empty } |
+				
+				## Adjusts the density of any particles within the fluid region without changing to which phase they belong.
+				## <i>rho_0</i> now represents a <b>relative</b> density compared to the rest density of the phase.
+				element Adjust_Density { empty } |
+				
+				## Fills a circular shell starting at <i>inner_radius</i> and ending at <i>outer_radius</i>. The particles are placed on circles rather than a grid.
+				## The centre of the circle is taken to be the average of <i>x_bl</i> and <i>x_tr</i>.
+				element  Shell_Fill
+				{
+					## Radius at which to begin filling.
+					element inner_radius { real },
+					
+					## Radius at which to end filling.
+					element outer_radius { real }
+				} |
+				
+				## Converts "droplets" throught the region on a regular square/cubic grid with specified spacing and droplet radius.
+				## These two factors combine to give an approximate saturation (exact if there are no boundaries inside the fluid region).
+				element Droplet_Convert
+				{
+					## Grid spacing for droplets
+					element spacing { real },
+					
+					## Droplet radius
+					element radius { real }
+				}
+			},
+			
+			## If this tag is present the fluid region will be an ellipse or ellipsoid instead of a rectangle or cuboid in 2D and 3D respectively.
+			element elliptical { empty }?,
+			
+			## Do we want to use equations to specify the intial velocity profile?
+			## Equations can be a function of position <i>(x,y,z)</i>, gravity <i>(gx,gy,gz)</i>, density <i>(rho)</i>, viscosity <i>(mu)</i> and scale <i>(scale)</i>.
+			## Note: the positions <i>x</i>,<i>y</i> and <i>z</i> are based on the unscaled positions.
+			element initial_velocity { 
+			
+				## X-coordinate of initial velocity field as a function of x,y,z,gx,gy,gz,rho,mu or scale.
+				element v_x { string },
+				
+				## Y-coordinate of initial velocity field as a function of x,y,z,gx,gy,gz,rho,mu or scale.
+				element v_y { string },
+				
+				## Z-coordinate of initial velocity field as a function of x,y,z,gx,gy,gz,rho,mu or scale.
+				element v_z { string }			
+			}?,
+		
+			## To which phase does the fluid in this region belong?
+			element colour { integer },
+			
+			## The rest density of the fluid.
+			element rho { real },
+			
+			## The dynamic viscosity of the fluid.
+			element mu { real },
+			
+			## Does the phase feel gravity?
+			element gravity { empty }?,
+			
+			## Speed of sound in the fluid. It is not recommended that this value be specified as it can cause problems at the boundaries between fluids, especially if their densities are very different. If not specified the speed of sound will be calculated from the global <i>c0_ref</i> value.
+			element c0 { real }?,
+			
+			## Which equation of state to use.
+			## <i>Default value: Tait Equation.</i>
+			element eos { element string_value{
+				"Tait Equation"|"Ideal Gas Law"|"Modified Ideal Gas"
+				}
+			}?,
+			
+			## For equations of state with a stiffness parameter this is its value. <i>Default value: 7</i>
+			element gamma { real }?,
+			
+			## Do we want to randomize the initial positions of the points?
+			## This helps remove crystalline structures which can develop.
+			## The particles are jiggled by a factor of dx.
+			element jiggle_factor { real }?,
+			
+			## Additional Physics Options. 
+			## Note that the code must be compiled with the tag PHYS_ADD defined to use these features AND the corresponding tags must be set in the additional physics section above.
+			element additional_physics
+			{
+				## Options for flows subject to temperature gradients.
+				## The flow is modified by using the Boussinesq approximation.
+				element thermal
+				{
+					## The initial temperature of the region.
+					element temperature { real },
+					
+					## The thermal conductivitiy of a fluid sets how quickly heat diffuses through it.
+					element conductivity { real },
+					
+					## The heat capacity of the fluid.
+					element heat_capacity { real },
+					
+					## The expansion coefficient sets how much the fluids density changes with temperature.
+					element expansion { real }
+				}?
+			}?
+		}+
+	}
+)

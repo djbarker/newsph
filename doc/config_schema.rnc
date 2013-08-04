@@ -1,0 +1,176 @@
+include "spud_base.rnc"
+
+## Represents a part of the spatial simulation domain.
+	region = (
+		
+		## The lower-left corner of the region
+		element lower { real_dim_vector },
+
+		## The upper-right corner of the region
+		element upper { real_dim_vector },
+
+		## Is the region cuboid or ellipsoidal?
+		element ellipse { empty }?
+	)
+
+start = (
+
+	## Options and configuration for the SPH simulation.
+	element options {
+	
+		## System geometry setup.
+		element geometry {
+		
+			## Number of spatial dimensions.
+			## <b>Once set this cannot be changed.</b>
+			element dimension {
+				element integer_value {
+					attribute rank {"0"},
+					("3"|"2")
+				}
+			},
+			
+			## Domain extent.
+			element period { real_dim_vector },
+						
+			## Rescales the simulation by this factor.
+			element scale { real }?
+		},
+	
+		## Options for file input and output.
+		element file_io {
+
+			## The directory for output files.
+			element directory { anystring },
+
+			## The filename root for output files.
+			element root { anystring }?,
+
+			## Wall geometry input files.
+			element walls { filename }?
+		},
+	
+		## Options relating to the SPH numerical method
+		element sph {
+
+			## Speed of sound in the 'reference' fluid.
+			element c0 { real },
+			
+			## Fluid phase to which the reference speed of sound applies. Speeds of sound in other phases are calcualted based on this.
+			## <i>Default value: zero.</i>
+			element reference_fluid { integer }?,
+			
+			## Resolution
+			element resolution {
+				## The SPH smoothing length.
+				element h { real } |
+				
+				## The particle spacing length/
+				element dx { real }
+			},
+			
+			## h_factor specifies how many particles there are per smoothing length.
+			## The average particle spacing is given by <i>dx = h/h_factor</i>.
+			element h_factor { real },
+			
+			## Multi Phase Options.
+			element multi_phase
+			{
+				## Number of fluid phases.
+				element num_colours { integer },
+			
+				## Colour interactions. Surface tension coefficients between each pair of fluid phases.
+				## If there are N phases then <i>shape</i> must real 'N N'. If this element is absent then no surface forces will be calculated.
+				element colour_interactions { real_tensor }?
+			}?
+		},
+		
+		## Options relating to the physical setup of the system.
+		element physics {
+
+			## Vector giving the acceleration due to gravity.
+			## <i>Default value: (0,0,0).</i>
+			element gravity { real_dim_vector }?,
+			
+			## Background pressure. Must be zero if there are any free surfaces.
+			## <i>Default value: 0.</i>
+			element atmospheric_pressure { real }?,
+			
+			## Fluid phases present in the system.
+			element fluid {
+				
+				## Libspud requires each element of the same type to have a unique name.
+				attribute name { string },
+				
+				
+				## Does the fluid feel gravity or not?
+				element gravity { empty }?,
+
+				## Viscosity
+				element viscosity { 
+					## dynamic viscosity is density times kinematic viscosity
+					element dynamic { real } |
+					
+					## kinematic viscosity is dymamic viscosity divided by density
+					element kinematic { real }
+				},
+				
+				## Density
+				element density { real }
+			}+,
+
+			## Surface tension coefficients between the different phases.
+			## <i>Note: the number of elements in the matrix must match the nubmer of "fluid" elements defined above.</i>
+			element surface_tensions { real_tensor }?
+			
+		},
+		
+		## Options for controlling time-stepping
+		element time
+		{
+			## Time to simulate.
+			element t_max { real },
+			
+			## Smallest allowable time-step. <i>Default value: 1.0E-7.</i>
+			element dt_min { real }?,
+			
+			## Largest allowable time-step. <i>Default value: 1.0E10.</i>
+			element dt_max { real }?,
+			
+			## Time interval at which to output results.
+			element dt_write { real }
+		},
+		
+		## Fill the specified region of the domain using the flood filling algorithm.
+		element flood_fill {
+			
+			## Libspud requires each element of the same type to have a unique name.
+			attribute name { string },
+			
+			
+			## The region to flood fill
+			element fill_region { region },
+
+			## Flood fill start point
+			element start_point { real_dim_vector },
+
+			## What fluid will the particles belong to?
+			## <i>Default: 0</i>
+			element fluid { integer }?
+		}+,
+
+		## Convert some already placed particles to another phase.
+		element convert {
+			
+			## Libspud requires each element of the same type to have a unique name.
+			attribute name { string },
+			
+			
+			## Convert particles within this region
+			element convert_region { region },
+
+			## To what phase should the particles belong?
+			element fluid { integer }
+		}*
+	}
+)

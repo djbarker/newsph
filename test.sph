@@ -1,0 +1,76 @@
+<?xml version='1.0' encoding='utf-8'?>
+<options>
+  <geometry>
+    <dimension>
+      <integer_value rank="0">2</integer_value>
+    </dimension>
+    <period>
+      <real_value shape="2" dim1="dim" rank="1">1.0 1.0</real_value>
+    </period>
+  </geometry>
+  <file_io>
+    <directory>
+      <string_value lines="1">output</string_value>
+    </directory>
+    <walls>
+      <string_value type="filename" lines="1">test.wob</string_value>
+    </walls>
+  </file_io>
+  <sph>
+    <c0>
+      <real_value rank="0">2.0</real_value>
+    </c0>
+    <resolution>
+      <dx>
+        <real_value rank="0">0.01</real_value>
+      </dx>
+    </resolution>
+    <h_factor>
+      <real_value rank="0">1.3</real_value>
+    </h_factor>
+  </sph>
+  <physics>
+    <fluid name="Water">
+      <gravity/>
+      <viscosity>
+        <dynamic>
+          <real_value rank="0">0.001</real_value>
+        </dynamic>
+      </viscosity>
+      <density>
+        <real_value rank="0">1000</real_value>
+      </density>
+    </fluid>
+    <fluid name="Air">
+      <viscosity>
+        <kinematic>
+          <real_value rank="0">1.573E-4</real_value>
+        </kinematic>
+      </viscosity>
+      <density>
+        <real_value rank="0">10</real_value>
+      </density>
+    </fluid>
+  </physics>
+  <time>
+    <t_max>
+      <real_value rank="0">0.1</real_value>
+    </t_max>
+    <dt_write>
+      <real_value rank="0">0.001</real_value>
+    </dt_write>
+  </time>
+  <flood_fill name="Fill">
+    <fill_region>
+      <lower>
+        <real_value shape="2" dim1="dim" rank="1">0 0</real_value>
+      </lower>
+      <upper>
+        <real_value shape="2" dim1="dim" rank="1">1 1</real_value>
+      </upper>
+    </fill_region>
+    <start_point>
+      <real_value shape="2" dim1="dim" rank="1">0.5 0.5</real_value>
+    </start_point>
+  </flood_fill>
+</options>

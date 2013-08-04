@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<grammar xmlns:a="http://relaxng.org/ns/compatibility/annotations/1.0" xmlns="http://relaxng.org/ns/structure/1.0" datatypeLibrary="">
+  <include href="spud_base.rng"/>
+  <define name="region">
+    <a:documentation>Represents a part of the spatial simulation domain.</a:documentation>
+    <element name="lower">
+      <a:documentation>The lower-left corner of the region</a:documentation>
+      <ref name="real_dim_vector"/>
+    </element>
+    <element name="upper">
+      <a:documentation>The upper-right corner of the region</a:documentation>
+      <ref name="real_dim_vector"/>
+    </element>
+    <optional>
+      <element name="ellipse">
+        <a:documentation>Is the region cuboid or ellipsoidal?</a:documentation>
+        <empty/>
+      </element>
+    </optional>
+  </define>
+  <start>
+    <element name="options">
+      <a:documentation>Options and configuration for the SPH simulation.</a:documentation>
+      <element name="geometry">
+        <a:documentation>System geometry setup.</a:documentation>
+        <element name="dimension">
+          <a:documentation>Number of spatial dimensions.
+&lt;b&gt;Once set this cannot be changed.&lt;/b&gt;</a:documentation>
+          <element name="integer_value">
+            <attribute name="rank">
+              <value>0</value>
+            </attribute>
+            <choice>
+              <value>3</value>
+              <value>2</value>
+            </choice>
+          </element>
+        </element>
+        <element name="period">
+          <a:documentation>Domain extent.</a:documentation>
+          <ref name="real_dim_vector"/>
+        </element>
+        <optional>
+          <element name="scale">
+            <a:documentation>Rescales the simulation by this factor.</a:documentation>
+            <ref name="real"/>
+          </element>
+        </optional>
+      </element>
+      <element name="file_io">
+        <a:documentation>Options for file input and output.</a:documentation>
+        <element name="directory">
+          <a:documentation>The directory for output files.</a:documentation>
+          <ref name="anystring"/>
+        </element>
+        <optional>
+          <element name="root">
+            <a:documentation>The filename root for output files.</a:documentation>
+            <ref name="anystring"/>
+          </element>
+        </optional>
+        <optional>
+          <element name="walls">
+            <a:documentation>Wall geometry input files.</a:documentation>
+            <ref name="filename"/>
+          </element>
+        </optional>
+      </element>
+      <element name="sph">
+        <a:documentation>Options relating to the SPH numerical method</a:documentation>
+        <element name="c0">
+          <a:documentation>Speed of sound in the 'reference' fluid.</a:documentation>
+          <ref name="real"/>
+        </element>
+        <optional>
+          <element name="reference_fluid">
+            <a:documentation>Fluid phase to which the reference speed of sound applies. Speeds of sound in other phases are calcualted based on this.
+&lt;i&gt;Default value: zero.&lt;/i&gt;</a:documentation>
+            <ref name="integer"/>
+          </element>
+        </optional>
+        <element name="resolution">
+          <a:documentation>Resolution</a:documentation>
+          <choice>
+            <element name="h">
+              <a:documentation>The SPH smoothing length.</a:documentation>
+              <ref name="real"/>
+            </element>
+            <element name="dx">
+              <a:documentation>The particle spacing length/</a:documentation>
+              <ref name="real"/>
+            </element>
+          </choice>
+        </element>
+        <element name="h_factor">
+          <a:documentation>h_factor specifies how many particles there are per smoothing length.
+The average particle spacing is given by &lt;i&gt;dx = h/h_factor&lt;/i&gt;.</a:documentation>
+          <ref name="real"/>
+        </element>
+        <optional>
+          <element name="multi_phase">
+            <a:documentation>Multi Phase Options.</a:documentation>
+            <element name="num_colours">
+              <a:documentation>Number of fluid phases.</a:documentation>
+              <ref name="integer"/>
+            </element>
+            <optional>
+              <element name="colour_interactions">
+                <a:documentation>Colour interactions. Surface tension coefficients between each pair of fluid phases.
+If there are N phases then &lt;i&gt;shape&lt;/i&gt; must real 'N N'. If this element is absent then no surface forces will be calculated.</a:documentation>
+                <ref name="real_tensor"/>
+              </element>
+            </optional>
+          </element>
+        </optional>
+      </element>
+      <element name="physics">
+        <a:documentation>Options relating to the physical setup of the system.</a:documentation>
+        <optional>
+          <element name="gravity">
+            <a:documentation>Vector giving the acceleration due to gravity.
+&lt;i&gt;Default value: (0,0,0).&lt;/i&gt;</a:documentation>
+            <ref name="real_dim_vector"/>
+          </element>
+        </optional>
+        <optional>
+          <element name="atmospheric_pressure">
+            <a:documentation>Background pressure. Must be zero if there are any free surfaces.
+&lt;i&gt;Default value: 0.&lt;/i&gt;</a:documentation>
+            <ref name="real"/>
+          </element>
+        </optional>
+        <oneOrMore>
+          <element name="fluid">
+            <a:documentation>Fluid phases present in the system.</a:documentation>
+            <attribute name="name">
+              <a:documentation>Libspud requires each element of the same type to have a unique name.</a:documentation>
+              <data type="string"/>
+            </attribute>
+            <optional>
+              <element name="gravity">
+                <a:documentation>Does the fluid feel gravity or not?</a:documentation>
+                <empty/>
+              </element>
+            </optional>
+            <element name="viscosity">
+              <a:documentation>Viscosity</a:documentation>
+              <choice>
+                <element name="dynamic">
+                  <a:documentation>dynamic viscosity is density times kinematic viscosity</a:documentation>
+                  <ref name="real"/>
+                </element>
+                <element name="kinematic">
+                  <a:documentation>kinematic viscosity is dymamic viscosity divided by density</a:documentation>
+                  <ref name="real"/>
+                </element>
+              </choice>
+            </element>
+            <element name="density">
+              <a:documentation>Density</a:documentation>
+              <ref name="real"/>
+            </element>
+          </element>
+        </oneOrMore>
+        <optional>
+          <element name="surface_tensions">
+            <a:documentation>Surface tension coefficients between the different phases.
+&lt;i&gt;Note: the number of elements in the matrix must match the nubmer of "fluid" elements defined above.&lt;/i&gt;</a:documentation>
+            <ref name="real_tensor"/>
+          </element>
+        </optional>
+      </element>
+      <element name="time">
+        <a:documentation>Options for controlling time-stepping</a:documentation>
+        <element name="t_max">
+          <a:documentation>Time to simulate.</a:documentation>
+          <ref name="real"/>
+        </element>
+        <optional>
+          <element name="dt_min">
+            <a:documentation>Smallest allowable time-step. &lt;i&gt;Default value: 1.0E-7.&lt;/i&gt;</a:documentation>
+            <ref name="real"/>
+          </element>
+        </optional>
+        <optional>
+          <element name="dt_max">
+            <a:documentation>Largest allowable time-step. &lt;i&gt;Default value: 1.0E10.&lt;/i&gt;</a:documentation>
+            <ref name="real"/>
+          </element>
+        </optional>
+        <element name="dt_write">
+          <a:documentation>Time interval at which to output results.</a:documentation>
+          <ref name="real"/>
+        </element>
+      </element>
+      <oneOrMore>
+        <element name="flood_fill">
+          <a:documentation>Fill the specified region of the domain using the flood filling algorithm.</a:documentation>
+          <attribute name="name">
+            <a:documentation>Libspud requires each element of the same type to have a unique name.</a:documentation>
+            <data type="string"/>
+          </attribute>
+          <element name="fill_region">
+            <a:documentation>The region to flood fill</a:documentation>
+            <ref name="region"/>
+          </element>
+          <element name="start_point">
+            <a:documentation>Flood fill start point</a:documentation>
+            <ref name="real_dim_vector"/>
+          </element>
+          <optional>
+            <element name="fluid">
+              <a:documentation>What fluid will the particles belong to?
+&lt;i&gt;Default: 0&lt;/i&gt;</a:documentation>
+              <ref name="integer"/>
+            </element>
+          </optional>
+        </element>
+      </oneOrMore>
+      <zeroOrMore>
+        <element name="convert">
+          <a:documentation>Convert some already placed particles to another phase.</a:documentation>
+          <attribute name="name">
+            <a:documentation>Libspud requires each element of the same type to have a unique name.</a:documentation>
+            <data type="string"/>
+          </attribute>
+          <element name="convert_region">
+            <a:documentation>Convert particles within this region</a:documentation>
+            <ref name="region"/>
+          </element>
+          <element name="fluid">
+            <a:documentation>To what phase should the particles belong?</a:documentation>
+            <ref name="integer"/>
+          </element>
+        </element>
+      </zeroOrMore>
+    </element>
+  </start>
+</grammar>
