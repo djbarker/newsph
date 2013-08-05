@@ -4,6 +4,7 @@
 #include <iostream>
 #include <dims.hpp>
 #include <vect.hpp>
+#include "../utils/utils.hpp"
 
 namespace sim
 {
@@ -19,26 +20,16 @@ struct Parameters
 	quantity<dims::time> tout;
 	quantity<dims::time> dt;
 
-	void serialize(std::ostream& out)
+	template<typename Archive>
+	void serialize(Archive& a, const unsigned int version)
 	{
-		out.write((char*)&dx,sizeof(double));
-		out.write((char*)&h,sizeof(double));
-		gravity.serialize(out);
-		out.write((char*)&bkg_pressure,sizeof(double));
-		out.write((char*)&tmax,sizeof(double));
-		out.write((char*)&tout,sizeof(double));
-		out.write((char*)&dt,sizeof(double));
-	}
-
-	void deserialize(std::istream& in)
-	{
-		in.read((char*)&dx,sizeof(double));
-		in.read((char*)&h,sizeof(double));
-		gravity.deserialize(in);
-		in.read((char*)&bkg_pressure,sizeof(double));
-		in.read((char*)&tmax,sizeof(double));
-		in.read((char*)&tout,sizeof(double));
-		in.read((char*)&dt,sizeof(double));
+		a & dx;
+		a & h;
+		a & gravity;
+		a & bkg_pressure;
+		a & tmax;
+		a & tout;
+		a & dt;
 	}
 };
 

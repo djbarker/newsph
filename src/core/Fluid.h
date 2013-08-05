@@ -13,9 +13,17 @@ namespace sim
 		dims::quantity<dims::density> density; // fluid density
 		dims::quantity<dims::velocity> speed_of_sound;
 
-		void serialize(std::ostream& out);
-		void deserialize(std::istream& in);
+		template<class Archive> void serialize(Archive& ar, const unsigned int version);
 	};
+
+	template<class Archive>
+	void Fluid::serialize(Archive& ar, const unsigned int version)
+	{
+		ar & gravity;
+		ar & viscosity;
+		ar & density;
+		ar & speed_of_sound;
+	}
 
 }
 

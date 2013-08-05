@@ -9,17 +9,16 @@
 #include <mpi.h>
 #include <spud>
 #include <boost/pool/pool_alloc.hpp>
+#include <boost/archive/binary_oarchive.hpp>
+#include <boost/archive/text_oarchive.hpp>
 #include "LinkedCellGrid.hpp"
 #include "Parameters.h"
 #include "Fluid.h"
 #include "Region.hpp"
 #include "../utils/utils.hpp"
-#include "../utils/MPIBuffer.hpp"
 
 namespace sim
 {
-
-using namespace utils;
 
 template<size_t Dim>
 class Simulation
@@ -31,9 +30,10 @@ public:
 	// I/O
 	void loadConfigXML(std::string fname);
 	void loadWall(std::string fname);
-	void serialize(std::ostream& out);
-	void deserialize(std::istream& in);
 	void writeOutput();
+
+	template<class Archive> void serialize(Archive& a, const unsigned int version);
+
 
 	void floodFill(const Region<Dim>&, const nvect<Dim,quantity<position>>&, size_t fluid);
 
@@ -61,8 +61,6 @@ private:
 	std::list<particle_type,boost::fast_pool_allocator<particle_type>> fluid_particles;
 	std::list<particle_type,boost::fast_pool_allocator<particle_type>> wall_particles;
 
-	MPIBuffer<particle_type> mpi_buff; // for sending and receiving
-
 	LinkedCellGrid<Dim,particle_type*> cells;
 };
 
@@ -84,12 +82,12 @@ void Simulation<Dim>::init()
 
 	// domain arrangements
 	domain_counts = calc_num_domains<Dim>(comm_size);
-	if(!comm_rank) cout << "Domain decomposition: " << domains << endl;
+	if(!comm_rank) cout << "Domain decomposition: " << domain_counts << endl;
 
 	auto tmp2 = nvect<Dim,quantity<number>>(domain_counts); // convert from a nvect of size_t to nvect of quantity<number,size_t> s
 	nvect<Dim,quantity<length>> dom_sizes = (gdomain.upper - gdomain.lower)/tmp2;
 
-	domain_sub = idx_to_sub<Dim>((size_t)comm_rank,domains); // get our position amongst the domain_counts
+	domain_sub = idx_to_sub<Dim>((size_t)comm_rank,domain_counts); // get our position amongst the domain_counts
 
 	// calculate lower domain position
 	ldomain.lower = nvect<Dim,quantity<number>>(domain_sub)*dom_sizes;
@@ -365,38 +363,36 @@ void Simulation<Dim>::loadWall(std::string fname)
 	}
 }
 
-template<size_t Dim>
-void Simulation<Dim>::serialize(std::ostream& out)
+template<size_t Dim> template<typename Archive>
+void Simulation<Dim>::serialize(Archive& a, const unsigned int version)
 {
-	params.serialize(out);
-	gdomain.serialize(out);
-	ldomain.serialize(out);
-
-	for(auto fluid : fluids)
-		fluid.serialize(out);
-
-	for(particle_type& part : fluid_particles)
-		part.serialize(out);
-
-	for(particle_type& part : wall_particles)
-		part.serialize(out);
+	a & params;
+	a & gdomain;
+	a & ldomain;
+	a & fluids;
+	a & fluid_particles;
+	a & wall_particles;
 }
+
+//BOOST_CLASS_VERSION(Simulation<2>,0)
+//BOOST_CLASS_VERSION(Simulation<3>,0)
 
 template<size_t Dim>
 void Simulation<Dim>::writeOutput()
 {
-	//TODO: use boost::iostreams to write this with compression
+	// TODO: use boost::iostreams to compress output
 	using namespace std;
 	stringstream fname_str;
 	fname_str << root << "." << comm_rank << ".dat";
 
-	ofstream fout(fname_str.str());
+	ofstream fout(fname_str.str(),ios::binary);
 	if(!fout.is_open())
 	{
 		cerr << "Error opening output file on proc " << comm_rank << endl;
 	}
 
-	serialize(fout);
+	boost::archive::binary_oarchive oarch(fout);
+	oarch << *this;
 
 	fout.close();
 }

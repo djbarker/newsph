@@ -5,6 +5,12 @@
 #include <stdexcept>
 #include <vector>
 #include <string>
+#include <boost/serialization/vector.hpp>
+#include <boost/serialization/list.hpp>
+#include <boost/serialization/split_free.hpp>
+//#include <boost/serialization/string.hpp>
+//#include <boost/serialization/version.hpp>
+//#include <boost/serialization/utility.hpp>
 #include <vect.hpp>
 #include <dims.hpp>
 #include "../core/Particle.hpp"
@@ -63,6 +69,46 @@ template<class T>
 int mod(int a, T b)
 {
 	return (a>0?a%(int)b:a+(int)b);
+}
+
+/*
+ * Functions for serializing quantities and nvects with boost::serialization.
+ */
+
+namespace boost { namespace serialization {
+
+// load and save quantities
+template<typename Dims, typename T, typename Archive>
+void save(Archive& ar, const quantity<Dims,T>& qty, const unsigned int version)
+{
+	T t = discard_dims(qty);
+	ar & t;
+}
+
+template<typename Dims, typename T, typename Archive>
+void load(Archive& ar, quantity<Dims,T>& qty, const unsigned int version)
+{
+	T t;
+	ar & t;
+	qty = quantity<Dims,T>(t);
+}
+
+// since quantity is a class template we must type this out manually
+// instead of using BOOST_SERIALIZATION_SPLIT_FREE
+template<typename Dims, typename T, typename Archive>
+inline void serialize(Archive & ar, quantity<Dims,T>& qty, const unsigned int file_version)
+{
+    split_free(ar, qty, file_version);
+}
+
+}}
+
+// serialize nvects
+template<size_t N, typename T, typename Archive>
+void serialize(Archive& ar, nvect<N,T>& vect, const unsigned int version)
+{
+	for(size_t i=0;i<N;++i)
+		ar & vect[i];
 }
 
 #endif /* UTILS_HPP_ */

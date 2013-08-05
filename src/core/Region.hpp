@@ -20,8 +20,7 @@ struct Region
 
 	bool inside(const nvect<Dim,quantity<length>>& position);
 
-	void serialize(std::ostream& out);
-	void deserialize(std::istream& out);
+	template<class Archive> void serialize(Archive& a, const unsigned int version);
 };
 
 template<size_t Dim>
@@ -40,20 +39,12 @@ bool Region<Dim>::inside(const nvect<Dim,quantity<length>>& pos)
 		return (lower<pos) && (pos<upper);
 }
 
-template<size_t Dim>
-void Region<Dim>::serialize(std::ostream& out)
+template<size_t Dim> template<class Archive>
+void Region<Dim>::serialize(Archive& a, const unsigned int version)
 {
-	upper.serialize(out);
-	lower.serialize(out);
-	out.write((char*)&ellipse,sizeof(bool));
-}
-
-template<size_t Dim>
-void Region<Dim>::deserialize(std::istream& in)
-{
-	upper.deserialize(in);
-	lower.deserialize(in);
-	in.read((char*)&ellipse,sizeof(bool));
+	a & upper;
+	a & lower;
+	a & ellipse;
 }
 
 } /* namespace sim */

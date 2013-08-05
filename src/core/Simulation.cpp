@@ -42,9 +42,6 @@ void Simulation<2>::exchange()
 
 	mod(domain_sub[0]-1,domain_counts[0]);
 
-
-
-
 }
 
-}
+} /* namespace sim */
