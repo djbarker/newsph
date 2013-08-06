@@ -4,6 +4,9 @@
 #include <boost/mpi/environment.hpp>
 
 #include "core/Simulation.hpp"
+#include "physics/PredictorCorrector.hpp"
+#include "physics/Sigma.hpp"
+#include "kernels/WendlandQuintic.hpp"
 
 using namespace std;
 using namespace sim;
@@ -26,7 +29,21 @@ int main(int argc, char* argv[])
 	// currently only takes one argument - the config file name
 	theSim.loadConfigXML(string(argv[1]));
 
-	theSim.writeOutput(0);
+	size_t file_number = 0;
+	theSim.writeOutput(file_number);
+
+	double tmax = discard_dims(theSim.parameters().tmax);
+	for(double t=0;t<tmax; t += discard_dims(theSim.parameters().dt))
+	{
+		// set values to zero
+		theSim.applyFunctions(physics::ResetVals<2>());
+
+		theSim.doSPHSum<kernels::WendlandQuintic>(0,physics::SigmaCalc<2>());
+
+		theSim.writeOutput(file_number);
+		++file_number;
+	}
+
 
 	return 0;
 }

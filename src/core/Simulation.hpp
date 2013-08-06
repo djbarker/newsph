@@ -42,8 +42,10 @@ public:
 
 	// Simulate
 	void exchange();
-	template<typename... Fs> void doSPHSum(size_t tstep, Fs&&... fs);
+	template<template<size_t> class K, typename... Fs> void doSPHSum(size_t tstep, Fs&&... fs);
 	template<typename... Fs> void applyFunctions(Fs&&... fs);
+
+	const Parameters<Dim>& parameters();
 
 	typedef sim::Particle<Dim,2,2> particle_type;
 
@@ -400,16 +402,22 @@ void Simulation<Dim>::writeOutput(size_t file_number)
 	fout.close();
 }
 
+template<size_t Dim>
+const Parameters<Dim>& Simulation<Dim>::parameters()
+{
+	return params;
+}
+
 /*
  * This function is used to actually perform the SPH sums over fluid & wall
  * particles. It accepts any callable objects of the form
  *
- * void func(particle_type& a, particle_type& b)
+ * void func(particle_type& a, particle_type& b, quantity<IntDim<0,-Dim,0>> W_ab, quantity<IntDim<0,-Dim-1,0>> gradW_ab)
  *
  * Note; if a value is returned it is discarded.
  */
 template<>
-template<typename... Fs>
+template<template<size_t> class Kernel, typename... Fs>
 void Simulation<2>::doSPHSum(size_t tstep, Fs&&... fs)
 {
 	static_assert(sizeof...(Fs)>0,"No operations passed to doSPHSum()!");
@@ -426,8 +434,13 @@ void Simulation<2>::doSPHSum(size_t tstep, Fs&&... fs)
 
 				for(particle_type* part_b : cells.getCell(cells.subToIdx(dx_sub)))
 				{
+					quantity<length>       dist_ab = (itr->pos[tstep]-part_b->pos[tstep]).magnitude();
+					quantity<IntDim<0,-2,0>>  W_ab = Kernel<2>::Kernel(dist_ab,params.h);
+					quantity<IntDim<0,-3,0>> dW_ab = Kernel<2>::Grad(dist_ab,params.h);
+
 					// for explanation of this line see: http://stackoverflow.com/questions/18077259/variadic-function-accepting-functors-callable-objects
-					auto dummylist = { (std::forward<Fs>(fs)(*itr,*part_b),0)... };
+					auto dummylist = { ((void)std::forward<Fs>(fs)(*itr,*part_b,W_ab,dW_ab),0)... };
+					(void)dummylist; // stop the compiler warning about unused variable
 				}
 			}
 
@@ -456,11 +469,12 @@ void Simulation<Dim>::applyFunctions(Fs&&... fs)
 {
 	static_assert(sizeof...(Fs)>0,"No operations passed to applyFunctions()!");
 
-	std::list<particle_type>::iterator itr = fluid_particles.begin();
+	typename std::list<particle_type>::iterator itr = fluid_particles.begin();
 	while(true)
 	{
 		// for explanation of this line see: http://stackoverflow.com/questions/18077259/variadic-function-accepting-functors-callable-objects
-		auto dummylist = { (std::forward<Fs>(fs)(*itr),0)... };
+		auto dummylist = { ((void)std::forward<Fs>(fs)(*itr),0)... };
+		(void) dummylist; // hide warning about unused variable
 
 		++itr;
 

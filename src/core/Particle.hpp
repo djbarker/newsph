@@ -29,6 +29,9 @@ public:
 	Particle();
 	virtual ~Particle(){};
 
+	// more than checking equality this checks whether they are the same object
+	bool is(Particle<Dim,TStep,NCol>&);
+
     //friend class boost::serialization::access;
 	template<class Archive> void serialize(Archive& a, const unsigned int version);
 
@@ -64,6 +67,12 @@ void Particle<Dim,TStep,NCol>::serialize(Archive& a, const unsigned int version)
 	a & acc;
 	a & sigma;
 	a & gradC;
+}
+
+template<size_t Dim, size_t TStep, size_t NCol>
+bool Particle<Dim,TStep,NCol>::is(Particle<Dim,TStep,NCol>& part)
+{
+	return this==&part;
 }
 
 } /* namespace sim */
