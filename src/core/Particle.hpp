@@ -42,7 +42,7 @@ public:
 	nvect<Dim,quantity<position>>		pos[TStep];
 	nvect<Dim,quantity<velocity>>		vel[TStep];
 	nvect<Dim,quantity<acceleration>>	acc;
-	quantity<IntDim<0,-Dim,0>>			sigma;
+	quantity<IntDim<0,-(int)Dim,0>>			sigma;
 	nvect<Dim,quantity<IntDim<0,-1,0>>>	gradC[NCol];
 
 	typename std::list<Particle<Dim,TStep,NCol>*>::iterator lcg_position;

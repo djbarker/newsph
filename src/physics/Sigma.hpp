@@ -13,7 +13,7 @@ using namespace dims;
 /*
  * Adds particles' contributions to sigma
  */
-template<size_t Dim>
+template<int Dim>
 struct SigmaCalc {
 
 	template<class PType>
@@ -30,13 +30,13 @@ struct SigmaCalc {
 /*
  * Resets values at the start of an iteration to zero.
  */
-template<size_t Dim>
+template<int Dim>
 struct ResetVals {
 
 	template<class PType>
 	void operator() (PType& part) {
-		part.sigma(0.0);
-		part.acc(0.0); // expands to (0.,0.,...) depending on Dim
+		part.sigma = quantity<IntDim<0,-Dim,0>>(0.0);
+		part.acc = nvect<+Dim,quantity<acceleration>>(0.0); // expands to (0.,0.,...) depending on Dim
 	}
 };
 

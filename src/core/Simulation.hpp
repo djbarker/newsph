@@ -42,7 +42,7 @@ public:
 
 	// Simulate
 	void exchange();
-	template<template<size_t> class K, typename... Fs> void doSPHSum(size_t tstep, Fs&&... fs);
+	template<template<int> class K, typename... Fs> void doSPHSum(size_t tstep, Fs&&... fs);
 	template<typename... Fs> void applyFunctions(Fs&&... fs);
 
 	const Parameters<Dim>& parameters();
@@ -417,7 +417,7 @@ const Parameters<Dim>& Simulation<Dim>::parameters()
  * Note; if a value is returned it is discarded.
  */
 template<>
-template<template<size_t> class Kernel, typename... Fs>
+template<template<int> class Kernel, typename... Fs>
 void Simulation<2>::doSPHSum(size_t tstep, Fs&&... fs)
 {
 	static_assert(sizeof...(Fs)>0,"No operations passed to doSPHSum()!");

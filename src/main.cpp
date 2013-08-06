@@ -38,7 +38,7 @@ int main(int argc, char* argv[])
 		// set values to zero
 		theSim.applyFunctions(physics::ResetVals<2>());
 
-		theSim.doSPHSum<kernels::WendlandQuintic>(0,physics::SigmaCalc<2>());
+		theSim.doSPHSum<kernels::WendlandQuintic,physics::SigmaCalc<2>>(0u,physics::SigmaCalc<2>());
 
 		theSim.writeOutput(file_number);
 		++file_number;

@@ -10,7 +10,7 @@ namespace kernels
 
 using namespace dims;
 
-template<size_t Dim>
+template<int Dim>
 struct WendlandQuintic
 {
 	static quantity<IntDim<0,-Dim,0>>   Kernel(quantity<length> r, quantity<length> h) {
@@ -20,7 +20,7 @@ struct WendlandQuintic
 			auto x = (1.0_number-q*0.5_number);
 			x *= x;
 			x *= x;
-			return C*x*(2.0_number*q+1.0_number)*pow<-Dim>(h);
+			return C*x*(2.0_number*q+1.0_number)*pow<-(int)Dim>(h);
 		}
 		else return quantity<IntDim<0,-Dim,0>>(0.);
 	}

@@ -95,6 +95,12 @@ Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::posToSub(const nvect<Dim,quantity<
 }
 
 template<size_t Dim, typename T, size_t Padding>
+std::list<T>& LinkedCellGrid<Dim,T,Padding>::getCell(size_t idx)
+{
+	return cells[idx];
+}
+
+template<size_t Dim, typename T, size_t Padding>
 void LinkedCellGrid<Dim,T,Padding>::place(std::list<T>& parts, size_t tstep)
 {
 	for(T t : parts)
