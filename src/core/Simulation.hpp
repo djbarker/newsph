@@ -6,11 +6,14 @@
 #include <string>
 #include <sstream>
 #include <fstream>
+#include <utility>
+#include <initializer_list>
 #include <mpi.h>
 #include <spud>
 #include <boost/pool/pool_alloc.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
+#include <boost/mpi/communicator.hpp>
 #include "LinkedCellGrid.hpp"
 #include "Parameters.h"
 #include "Fluid.h"
@@ -30,21 +33,23 @@ public:
 	// I/O
 	void loadConfigXML(std::string fname);
 	void loadWall(std::string fname);
-	void writeOutput();
-
+	void writeOutput(size_t file_no);
 	template<class Archive> void serialize(Archive& a, const unsigned int version);
 
-
+	// Setup
+	void init();
 	void floodFill(const Region<Dim>&, const nvect<Dim,quantity<position>>&, size_t fluid);
 
+	// Simulate
 	void exchange();
+	template<typename... Fs> void doSPHSum(size_t tstep, Fs&&... fs);
+	template<typename... Fs> void applyFunctions(Fs&&... fs);
 
 	typedef sim::Particle<Dim,2,2> particle_type;
 
 private:
 
-	void init();
-
+	boost::mpi::communicator comm;
 	size_t comm_size;
 	size_t comm_rank;
 
@@ -58,8 +63,9 @@ private:
 	std::vector<Fluid>	fluids; // fluid parameters
 
 	// lists for particles
-	std::list<particle_type,boost::fast_pool_allocator<particle_type>> fluid_particles;
-	std::list<particle_type,boost::fast_pool_allocator<particle_type>> wall_particles;
+	typedef std::list<particle_type,boost::fast_pool_allocator<particle_type>> plist_type;
+	plist_type fluid_particles;
+	plist_type wall_particles;
 
 	LinkedCellGrid<Dim,particle_type*> cells;
 };
@@ -68,11 +74,8 @@ template<size_t Dim>
 Simulation<Dim>::Simulation()
 {
 	// init MPI variables
-	int tmp;
-	MPI_Comm_size(MPI_COMM_WORLD,&tmp);
-	comm_size = tmp;
-	MPI_Comm_rank(MPI_COMM_WORLD,&tmp);
-	comm_rank = tmp;
+	comm_size = comm.size();
+	comm_rank = comm.rank();
 }
 
 template<size_t Dim>
@@ -378,12 +381,12 @@ void Simulation<Dim>::serialize(Archive& a, const unsigned int version)
 //BOOST_CLASS_VERSION(Simulation<3>,0)
 
 template<size_t Dim>
-void Simulation<Dim>::writeOutput()
+void Simulation<Dim>::writeOutput(size_t file_number)
 {
 	// TODO: use boost::iostreams to compress output
 	using namespace std;
 	stringstream fname_str;
-	fname_str << root << "." << comm_rank << ".dat";
+	fname_str << root << '.' << file_number << '.' << comm_rank << ".dat";
 
 	ofstream fout(fname_str.str(),ios::binary);
 	if(!fout.is_open())
@@ -395,6 +398,78 @@ void Simulation<Dim>::writeOutput()
 	oarch << *this;
 
 	fout.close();
+}
+
+/*
+ * This function is used to actually perform the SPH sums over fluid & wall
+ * particles. It accepts any callable objects of the form
+ *
+ * void func(particle_type& a, particle_type& b)
+ *
+ * Note; if a value is returned it is discarded.
+ */
+template<>
+template<typename... Fs>
+void Simulation<2>::doSPHSum(size_t tstep, Fs&&... fs)
+{
+	static_assert(sizeof...(Fs)>0,"No operations passed to doSPHSum()!");
+
+	std::list<particle_type>::iterator itr = fluid_particles.begin();
+	while(true)
+	{
+		Subscript<2> x_sub = cells.posToSub(itr->pos[tstep]);
+		// iterate over nearby particles
+		for(int di=-1;di<=1;++di)
+			for(int dj=-1;dj<=1;++dj)
+			{
+				Subscript<2> dx_sub(x_sub[0]+di,x_sub[1]+dj);
+
+				for(particle_type* part_b : cells.getCell(cells.subToIdx(dx_sub)))
+				{
+					// for explanation of this line see: http://stackoverflow.com/questions/18077259/variadic-function-accepting-functors-callable-objects
+					auto dummylist = { (std::forward<Fs>(fs)(*itr,*part_b),0)... };
+				}
+			}
+
+		++itr;
+
+		if(itr==fluid_particles.end())
+			itr = wall_particles.begin();
+
+		if(itr==wall_particles.end())
+			break;
+	}
+
+}
+
+/*
+ * This funciton is used to apply functions / transformations to fluid and wall
+ * particles. It accepts any callable objects of the form
+ *
+ * void func(particle_type& a)
+ *
+ * Note; if a value is returned it is discarded.
+ */
+template<size_t Dim>
+template<typename... Fs>
+void Simulation<Dim>::applyFunctions(Fs&&... fs)
+{
+	static_assert(sizeof...(Fs)>0,"No operations passed to applyFunctions()!");
+
+	std::list<particle_type>::iterator itr = fluid_particles.begin();
+	while(true)
+	{
+		// for explanation of this line see: http://stackoverflow.com/questions/18077259/variadic-function-accepting-functors-callable-objects
+		auto dummylist = { (std::forward<Fs>(fs)(*itr),0)... };
+
+		++itr;
+
+		if(itr==fluid_particles.end())
+			itr = wall_particles.begin();
+
+		if(itr==wall_particles.end())
+			break;
+	}
 }
 
 } /* namespace sim */

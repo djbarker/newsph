@@ -1,6 +1,7 @@
 #include <iostream>
 #include <fstream>
 #include <iomanip>
+#include <boost/mpi/environment.hpp>
 
 #include "core/Simulation.hpp"
 
@@ -17,17 +18,15 @@ int main(int argc, char* argv[])
 
 	cout << std::boolalpha;
 
-	MPI_Init(&argc,&argv);
+	// setup mpi
+	boost::mpi::environment(argc,argv);
 
 	Simulation<2> theSim;
 
 	// currently only takes one argument - the config file name
 	theSim.loadConfigXML(string(argv[1]));
 
-	theSim.writeOutput();
-
-
-	MPI_Finalize();
+	theSim.writeOutput(0);
 
 	return 0;
 }

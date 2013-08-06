@@ -5,6 +5,7 @@
 #include <list>
 #include <stdexcept>
 #include "Particle.hpp"
+#include "Region.hpp"
 #include "../utils/utils.hpp"
 
 namespace sim
@@ -20,6 +21,9 @@ enum PaddingLocation
 	Back   = 0x20, // 32
 };
 
+// forward declaration
+template<size_t _Dim, class _T, size_t _Padding, size_t Loc> struct _lcg_impl;
+
 template<size_t Dim, typename T, size_t Padding=1>
 class LinkedCellGrid
 {
@@ -27,65 +31,204 @@ public:
 	LinkedCellGrid(){};
 	virtual ~LinkedCellGrid(){};
 
-	void init(quantity<length> cell_size);
+	void init(quantity<length> cell_size, Extent<Dim> cell_counts);
 
 	Subscript<Dim> idxToSub(size_t idx);
-	size_t idxToSub(Subscript<Dim> sub);
+	size_t subToIdx(Subscript<Dim> sub);
+	Subscript<Dim> posToSub(const nvect<Dim,quantity<position>>&);
 	std::list<T>& getCell(size_t idx);
-	void place(std::list<T>& list);
+	void place(std::list<T>& list, size_t tstep);
+	void clear();
 
-	std::list<T> getPadding(size_t location);
+	// functions which are forwarded to _lcg_imp
+	template<size_t Loc> std::list<T> getBorder();
 
 private:
+
+	template<size_t _Dim, class _T, size_t _Padding, size_t Loc> friend struct _lcg_impl;
+	void appendCellContents(std::list<T>& out,Subscript<Dim> cell_sub);
+
+
 	quantity<length> cell_size;
 	nvect<Dim,size_t> cell_counts;
-	std::vector<std::list<T>> cells();
+	std::vector<std::list<T>> cells;
 };
 
+template<size_t Dim, typename T, size_t Padding>
+void LinkedCellGrid<Dim,T,Padding>::init(quantity<length> cell_size, Extent<Dim> cell_counts)
+{
+	this->cell_size = cell_size;
+	this->cell_counts = cell_counts;
+
+	// total number of cells
+	size_t ncells = 0;
+	for(size_t i=0;i<Dim;++i)
+	{
+		cell_counts[i] += 2*Padding;
+		ncells *= cell_counts[i];
+	}
+
+	// create empty cells
+	cells.resize(ncells);
+}
+
+template<size_t Dim, typename T, size_t Padding>
+Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::idxToSub(size_t idx)
+{
+	return idx_to_sub(idx,cell_counts)-Subscript<Dim>(Padding);
+}
+
+template<size_t Dim, typename T, size_t Padding>
+size_t LinkedCellGrid<Dim,T,Padding>::subToIdx(Subscript<Dim> sub)
+{
+	return sub_to_idx(sub+Subscript<Dim>(Padding),cell_counts);
+}
+
+template<size_t Dim, typename T, size_t Padding>
+Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::posToSub(const nvect<Dim,quantity<position>>& pos)
+{
+	nvect<Dim,double>	subn;
+	for(size_t i=0;i<Dim;++i)
+		subn[i] = discard_dims(pos[i]/cell_size);
+
+	return Subscript<Dim>(subn); // "cast" to int
+}
+
+template<size_t Dim, typename T, size_t Padding>
+void LinkedCellGrid<Dim,T,Padding>::place(std::list<T>& parts, size_t tstep)
+{
+	for(T t : parts)
+	{
+		cells[subToIdx(posToSub(t->pos[tstep]))].push_back(t);
+	}
+}
+
+template<size_t Dim, typename T, size_t Padding>
+void LinkedCellGrid<Dim,T,Padding>::appendCellContents(std::list<T>& out, Subscript<Dim> sub)
+{
+	size_t idx = subToIdx(sub);
+
+	// copy cell[idx] contents to the end of out
+	std::copy(cells[idx].begin(), cells[idx].end(),
+			  std::back_insert_iterator<std::list<T> >(out));
+}
+
 /*
- * Really we would want to partially specialize on Dim (and possibly Padding)
+ * Really we would want to partially this member function for Dim and Loc
  * but we cannot partially specialize members without partially specializing
- * the whole class so we are forced to use ifs. This removes some compile-
- * time safety but it's more acceptable than the template work-arounds. It
- * would also be safer to have loc as a template parameter so we could tell
- * at compile time if we were accidently calling say getPadding<Front> with
- * Dims==2 which would be invalid.
+ * the whole class so we are forced to forward the implementation. To
+ * an intermediate struct which we can partially specialize.
+ *
+ * This leads to more verbose syntax here but maintains compile time safety,
+ * without affecting syntax elsewhere. E.g. if we accidently tried
+ * to call getBorder<Left|Right>() it would not compile because
+ * there is no specilization of _lcg_impl for Left|Right.
  */
 
-template<size_t Dim, class T, size_t Padding>
-std::list<T> LinkedCellGrid<Dim,T,Padding>::getPadding(size_t loc)
+template<size_t Dim, class T, size_t Padding> template<size_t Loc>
+std::list<T> LinkedCellGrid<Dim,T,Padding>::getBorder()
 {
-	if(Dim==2)
-	{
-		// TODO: padding
-		switch(loc)
-		{
-		case Top:
-			break;
-		case Bottom:
-			break;
-		case Left:
-			break;
-		case Right:
-			break;
-		case Top|Left:
-			break;
-		case Top|Right:
-			break;
-		case Bottom|Left:
-			break;
-		case Bottom|Right:
-			break;
-		default:
-			throw std::logic_error("invald padding location for 2D LinkedCellGrid!"); // see above
-		}
-	}
-	else if(Dim==3)
-	{
-
-	}
-
+	return _lcg_impl<Dim,T,Padding,Loc>::getBorder(*this);
 }
+
+// partial specializations for Dim and Loc
+
+template<class _T, size_t Padding>
+struct _lcg_impl<2,_T,Padding,Left> {
+	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		std::list<_T> out;
+		for(int j=0;j<(int)lcg.cell_counts[1]-2*Padding;++j)
+			for(int i=0;i<(int)Padding;++i)
+				lcg.appendCellContents(out,Subscript<2>(i,j));
+		return out;
+	}
+};
+
+template<class _T, size_t Padding>
+struct _lcg_impl<2,_T,Padding,Right> {
+	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		std::list<_T> out;
+		for(int j=0;j<(int)lcg.cell_counts[1]-2*Padding;++j)
+			for(int i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*Padding;++i)
+				lcg.appendCellContents(out,Subscript<2>(i,j));
+		return out;
+	}
+};
+
+template<class _T, size_t Padding>
+struct _lcg_impl<2,_T,Padding,Top> {
+	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		std::list<_T> out;
+		for(int i=0;i<lcg.cell_counts[0]-2*Padding;++i)
+			for(int j=lcg.cell_counts[1]-3*Padding;j<lcg.cell_counts[1]-2*Padding;++j)
+				lcg.appendCellContents(out,Subscript<2>(i,j));
+		return out;
+	}
+};
+
+template<class _T, size_t Padding>
+struct _lcg_impl<2,_T,Padding,Bottom> {
+	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		std::list<_T> out;
+		for(int i=0;i<(int)lcg.cell_counts[0]-2*Padding;++i)
+			for(int j=0;j<(int)Padding;++j)
+				lcg.appendCellContents(out,Subscript<2>(i,j));
+		return out;
+	}
+};
+
+template<class _T, size_t Padding>
+struct _lcg_impl<2,_T,Padding,Bottom|Left> {
+	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		std::list<_T> out;
+		for(int i=0;i<(int)Padding;++i)
+			for(int j=0;j<(int)Padding;++j)
+				lcg.appendCellContents(out,Subscript<2>(i,j));
+		return out;
+	}
+};
+
+template<class _T, size_t Padding>
+struct _lcg_impl<2,_T,Padding,Bottom|Right> {
+	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		std::list<_T> out;
+		for(int i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*Padding;++i)
+			for(int j=0;j<(int)Padding;++j)
+				lcg.appendCellContents(out,Subscript<2>(i,j));
+		return out;
+	}
+};
+
+template<class _T, size_t Padding>
+struct _lcg_impl<2,_T,Padding,Top|Right> {
+	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		std::list<_T> out;
+		for(size_t i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*Padding;++i)
+			for(size_t j=lcg.cell_counts[1]-3*Padding;j<(int)lcg.cell_counts[1]-2*Padding;++j)
+				lcg.appendCellContents(out,Subscript<2>(i,j));
+		return out;
+	}
+};
+
+template<class _T, size_t Padding>
+struct _lcg_impl<2,_T,Padding,Top|Left> {
+	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		std::list<_T> out;
+		for(size_t i=0;i<(int)Padding;++i)
+			for(size_t j=lcg.cell_counts[1]-3*Padding;j<(int)lcg.cell_counts[1]-2*Padding;++j)
+				lcg.appendCellContents(out,Subscript<2>(i,j));
+		return out;
+	}
+};
+
 
 }
 

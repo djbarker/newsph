@@ -2,6 +2,8 @@
 #define PARTICLE_H_
 
 #include <iostream>
+#include <list>
+#include <boost/mpi/datatype.hpp>
 #include <dims.hpp>
 #include <vect.hpp>
 #include "../utils/utils.hpp"
@@ -39,6 +41,8 @@ public:
 	nvect<Dim,quantity<acceleration>>	acc;
 	quantity<IntDim<0,-Dim,0>>			sigma;
 	nvect<Dim,quantity<IntDim<0,-1,0>>>	gradC[NCol];
+
+	typename std::list<Particle<Dim,TStep,NCol>*>::iterator lcg_position;
 };
 
 template<size_t Dim, size_t TStep, size_t NCol>
@@ -63,4 +67,11 @@ void Particle<Dim,TStep,NCol>::serialize(Archive& a, const unsigned int version)
 }
 
 } /* namespace sim */
+
+// optimize sending via boost::mpi
+namespace boost { namespace mpi {
+  template <size_t Dim, size_t TStep, size_t NCol>
+  struct is_mpi_datatype<sim::Particle<Dim,TStep,NCol> > : mpl::true_ { };
+} }
+
 #endif /* PARTICLE_H_ */

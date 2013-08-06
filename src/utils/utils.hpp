@@ -25,9 +25,9 @@ using namespace dims;
 template<size_t Dim> using Subscript = nvect<Dim,int>;
 template<size_t Dim> using Extent = nvect<Dim,size_t>;
 
-template<size_t Dim> size_t	sub_to_idx(Subscript<Dim>& sub, Extent<Dim>& extent);
-
-template<size_t Dim> Subscript<Dim> idx_to_sub(size_t idx, Extent<Dim>& extent);
+// TODO: make these (and nvect) pass by rvalue
+template<size_t Dim> size_t	sub_to_idx(Subscript<Dim> sub, Extent<Dim> extent);
+template<size_t Dim> Subscript<Dim> idx_to_sub(size_t idx, Extent<Dim> extent);
 
 /*
  * Decompose the domain
