@@ -8,7 +8,6 @@
 #include <fstream>
 #include <utility>
 #include <initializer_list>
-#include <mpi.h>
 #include <spud>
 #include <boost/pool/pool_alloc.hpp>
 #include <boost/archive/binary_oarchive.hpp>
@@ -23,10 +22,14 @@
 namespace sim
 {
 
+using namespace std;
+
 template<size_t Dim>
 class Simulation
 {
 public:
+	typedef sim::Particle<Dim,2,2> particle_type;
+
 	Simulation();
 	virtual ~Simulation(){};
 
@@ -45,11 +48,13 @@ public:
 	template<template<int> class K, typename... Fs> void doSPHSum(size_t tstep, Fs&&... fs);
 	template<typename... Fs> void applyFunctions(Fs&&... fs);
 
-	const Parameters<Dim>& parameters();
-
-	typedef sim::Particle<Dim,2,2> particle_type;
+	const Parameters<Dim>& parameters() const;
+	const std::vector<particle_type>& fluidParticles() const;
+	const std::vector<particle_type>& wallParticles() const;
 
 private:
+
+	std::vector<Subscript<Dim>> getStencil();
 
 	boost::mpi::communicator comm;
 	size_t comm_size;
@@ -85,18 +90,50 @@ void Simulation<Dim>::init()
 {
 	using namespace std;
 
+	// TODO: INIT LINKED CELL GRID AND ENSURE LOCAL DOMAINS ALIGN PROPERLY WITH EDGES
+
+	// get cell sizes in each dimension (can be slightly off 2h to ensure they fit exactly in the domain)
+	qvect<Dim,number> gnum_cells = gdomain.upper / (2.0_number*params.h);
+	for(size_t i=0;i<Dim;++i) gnum_cells[i] = floor(gnum_cells[i]);
+	qvect<Dim,length> cell_sizes = gdomain.upper / gnum_cells;
+	if(!comm_rank) cout << "Cell sizes: " << cell_sizes/params.h << " * h" << endl;
+
 	// domain arrangements
 	domain_counts = calc_num_domains<Dim>(comm_size);
 	if(!comm_rank) cout << "Domain decomposition: " << domain_counts << endl;
 
-	auto tmp2 = nvect<Dim,quantity<number>>(domain_counts); // convert from a nvect of size_t to nvect of quantity<number,size_t> s
-	nvect<Dim,quantity<length>> dom_sizes = (gdomain.upper - gdomain.lower)/tmp2;
+	Extent<Dim> global_cell_counts(discard_dims(gnum_cells)); // "cast" to size_t
 
-	domain_sub = idx_to_sub<Dim>((size_t)comm_rank,domain_counts); // get our position amongst the domain_counts
+	// calculate the number of cells for each processor in each dimension
+	nvect<Dim,size_t> lnum_cells[comm_size];
+	for(size_t p=0;p<comm_size;++p)
+		for(size_t i=0;i<Dim;++i)
+			if(p<floor(global_cell_counts[i]/domain_counts[i]))
+				lnum_cells[p][i] = floor(global_cell_counts[i]/domain_counts[i]);
+			else
+				lnum_cells[p][i] = floor(global_cell_counts[i]/domain_counts[i])+1;
 
-	// calculate lower domain position
-	ldomain.lower = nvect<Dim,quantity<number>>(domain_sub)*dom_sizes;
+	// get the size in each dimension of our domain
+	nvect<Dim,quantity<length>> dom_sizes = qvect<Dim,number>(lnum_cells[comm_rank])*cell_sizes;
+
+	// get our position amongst the domain_counts
+	domain_sub = idx_to_sub<Dim>((size_t)comm_rank,domain_counts);
+
+	// calculate local domain physical position
+	for(size_t i=0;i<Dim;++i)
+		for(size_t j=0;j<(size_t)domain_sub[i];++j)
+		{
+			auto tmp = domain_sub;
+			tmp[i] = j;
+			ldomain.lower[i] += quantity<number>(lnum_cells[sub_to_idx<Dim>(tmp,domain_counts)][i])*cell_sizes[i];
+		}
+
 	ldomain.upper = ldomain.lower + dom_sizes;
+
+	// initialize the linked cell grid.
+	cells.init(cell_sizes,lnum_cells[comm_rank],ldomain.lower);
+
+	cout << "P" << comm_rank <<" : " << ldomain.lower << "->" << ldomain.upper << endl;
 }
 
 template<size_t Dim>
@@ -131,9 +168,6 @@ void Simulation<Dim>::loadConfigXML(std::string fname)
 	vector<double> period;
 	get_option("/geometry/period",period);
 	gdomain.upper = vector_to_nvect<Dim,quantity<position>>(period);
-
-	// setup local domain_counts
-	init();
 
 	get_option("/file_io/root",root,"out");
 
@@ -223,6 +257,9 @@ void Simulation<Dim>::loadConfigXML(std::string fname)
 	get_option("/time/dt_max",time);
 	params.dt = quantity<dims::time>(time);
 
+	// setup local domain_counts, linked cell grid, etc
+	init();
+
 	// perform any flood filling requested
 
 	for(int i=0;i<option_count("/flood_fill");++i)
@@ -254,6 +291,11 @@ void Simulation<Dim>::loadConfigXML(std::string fname)
 		get_option(path+"/fluid",tmpi,0);
 
 		floodFill(fill_region,start_point,(size_t)tmpi);
+
+		if(!comm_rank) cout << "Done" << endl;
+
+		// wait for others to finish
+		comm.barrier();
 	}
 
 }
@@ -368,6 +410,18 @@ void Simulation<Dim>::loadWall(std::string fname)
 	}
 }
 
+template<size_t Dim>
+const std::vector<typename Simulation<Dim>::particle_type>& Simulation<Dim>::fluidParticles() const
+{
+	return fluid_particles;
+}
+
+template<size_t Dim>
+const std::vector<typename Simulation<Dim>::particle_type>& Simulation<Dim>::wallParticles() const
+{
+	return wall_particles;
+}
+
 template<size_t Dim> template<typename Archive>
 void Simulation<Dim>::serialize(Archive& a, const unsigned int version)
 {
@@ -403,7 +457,7 @@ void Simulation<Dim>::writeOutput(size_t file_number)
 }
 
 template<size_t Dim>
-const Parameters<Dim>& Simulation<Dim>::parameters()
+const Parameters<Dim>& Simulation<Dim>::parameters() const
 {
 	return params;
 }
@@ -416,33 +470,35 @@ const Parameters<Dim>& Simulation<Dim>::parameters()
  *
  * Note; if a value is returned it is discarded.
  */
-template<>
+template<size_t Dim>
 template<template<int> class Kernel, typename... Fs>
-void Simulation<2>::doSPHSum(size_t tstep, Fs&&... fs)
+void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 {
 	static_assert(sizeof...(Fs)>0,"No operations passed to doSPHSum()!");
 
-	std::list<particle_type>::iterator itr = fluid_particles.begin();
+	auto neighbour_cells = getStencil();
+
+	typename std::list<particle_type>::iterator itr = fluid_particles.begin();
 	while(true)
 	{
-		Subscript<2> x_sub = cells.posToSub(itr->pos[tstep]);
+		Subscript<Dim> x_sub = cells.posToSub(itr->pos[tstep]);
+
 		// iterate over nearby particles
-		for(int di=-1;di<=1;++di)
-			for(int dj=-1;dj<=1;++dj)
+		for(Subscript<Dim> dcell : neighbour_cells)
+		{
+			for(particle_type* part_b : cells.getCell(cells.subToIdx(x_sub+dcell)))
 			{
-				Subscript<2> dx_sub(x_sub[0]+di,x_sub[1]+dj);
+				cout << part_b->pos[tstep] << endl;
+				quantity<length>       dist_ab = (itr->pos[tstep]-part_b->pos[tstep]).magnitude();
+				quantity<IntDim<0,-(int)Dim,0>>  W_ab = Kernel<2>::Kernel(dist_ab,params.h);
+				quantity<IntDim<0,-1-(int)Dim,0>> dW_ab = Kernel<2>::Grad(dist_ab,params.h);
 
-				for(particle_type* part_b : cells.getCell(cells.subToIdx(dx_sub)))
-				{
-					quantity<length>       dist_ab = (itr->pos[tstep]-part_b->pos[tstep]).magnitude();
-					quantity<IntDim<0,-2,0>>  W_ab = Kernel<2>::Kernel(dist_ab,params.h);
-					quantity<IntDim<0,-3,0>> dW_ab = Kernel<2>::Grad(dist_ab,params.h);
-
-					// for explanation of this line see: http://stackoverflow.com/questions/18077259/variadic-function-accepting-functors-callable-objects
-					auto dummylist = { ((void)std::forward<Fs>(fs)(*itr,*part_b,W_ab,dW_ab),0)... };
-					(void)dummylist; // stop the compiler warning about unused variable
-				}
+				// for explanation of this line see: http://stackoverflow.com/questions/18077259/variadic-function-accepting-functors-callable-objects
+				auto dummylist = { ((void)std::forward<Fs>(fs)(*itr,*part_b,W_ab,dW_ab),0)... };
+				(void)dummylist; // stop the compiler warning about unused variable
 			}
+
+		}
 
 		++itr;
 

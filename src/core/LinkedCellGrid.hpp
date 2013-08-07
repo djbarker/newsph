@@ -11,6 +11,8 @@
 namespace sim
 {
 
+using namespace std;
+
 enum PaddingLocation
 {
 	Top    = 0x1,  // 1
@@ -31,7 +33,7 @@ public:
 	LinkedCellGrid(){};
 	virtual ~LinkedCellGrid(){};
 
-	void init(quantity<length> cell_size, Extent<Dim> cell_counts);
+	void init(qvect<Dim,length> cell_size, Extent<Dim> cell_counts, qvect<Dim,length> lower);
 
 	Subscript<Dim> idxToSub(size_t idx);
 	size_t subToIdx(Subscript<Dim> sub);
@@ -48,25 +50,28 @@ private:
 	template<size_t _Dim, class _T, size_t _Padding, size_t Loc> friend struct _lcg_impl;
 	void appendCellContents(std::list<T>& out,Subscript<Dim> cell_sub);
 
-
-	quantity<length> cell_size;
+	qvect<Dim,length> lower;
+	qvect<Dim,length> cell_sizes;
 	nvect<Dim,size_t> cell_counts;
 	std::vector<std::list<T>> cells;
 };
 
 template<size_t Dim, typename T, size_t Padding>
-void LinkedCellGrid<Dim,T,Padding>::init(quantity<length> cell_size, Extent<Dim> cell_counts)
+void LinkedCellGrid<Dim,T,Padding>::init(qvect<Dim,length> cell_sizes, Extent<Dim> cell_counts, qvect<Dim,length> lower)
 {
-	this->cell_size = cell_size;
+	this->cell_sizes = cell_sizes;
 	this->cell_counts = cell_counts;
+	this->lower = lower;
 
 	// total number of cells
-	size_t ncells = 0;
+	size_t ncells = 1;
 	for(size_t i=0;i<Dim;++i)
 	{
 		cell_counts[i] += 2*Padding;
 		ncells *= cell_counts[i];
 	}
+
+	cout << ncells << endl;
 
 	// create empty cells
 	cells.resize(ncells);
@@ -87,11 +92,7 @@ size_t LinkedCellGrid<Dim,T,Padding>::subToIdx(Subscript<Dim> sub)
 template<size_t Dim, typename T, size_t Padding>
 Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::posToSub(const nvect<Dim,quantity<position>>& pos)
 {
-	nvect<Dim,double>	subn;
-	for(size_t i=0;i<Dim;++i)
-		subn[i] = discard_dims(pos[i]/cell_size);
-
-	return Subscript<Dim>(subn); // "cast" to int
+	return Subscript<Dim>(discard_dims((pos-lower)/cell_sizes)); // "cast" to int
 }
 
 template<size_t Dim, typename T, size_t Padding>
@@ -144,7 +145,7 @@ struct _lcg_impl<2,_T,Padding,Left> {
 	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
 		std::list<_T> out;
-		for(int j=0;j<(int)lcg.cell_counts[1]-2*Padding;++j)
+		for(int j=0;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
 			for(int i=0;i<(int)Padding;++i)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
 		return out;
@@ -156,8 +157,8 @@ struct _lcg_impl<2,_T,Padding,Right> {
 	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
 		std::list<_T> out;
-		for(int j=0;j<(int)lcg.cell_counts[1]-2*Padding;++j)
-			for(int i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*Padding;++i)
+		for(int j=0;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
+			for(int i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
 		return out;
 	}
@@ -168,8 +169,8 @@ struct _lcg_impl<2,_T,Padding,Top> {
 	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
 		std::list<_T> out;
-		for(int i=0;i<lcg.cell_counts[0]-2*Padding;++i)
-			for(int j=lcg.cell_counts[1]-3*Padding;j<lcg.cell_counts[1]-2*Padding;++j)
+		for(int i=0;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
+			for(int j=lcg.cell_counts[1]-3*Padding;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
 		return out;
 	}
@@ -180,7 +181,7 @@ struct _lcg_impl<2,_T,Padding,Bottom> {
 	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
 		std::list<_T> out;
-		for(int i=0;i<(int)lcg.cell_counts[0]-2*Padding;++i)
+		for(int i=0;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
 			for(int j=0;j<(int)Padding;++j)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
 		return out;
@@ -204,7 +205,7 @@ struct _lcg_impl<2,_T,Padding,Bottom|Right> {
 	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
 		std::list<_T> out;
-		for(int i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*Padding;++i)
+		for(int i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
 			for(int j=0;j<(int)Padding;++j)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
 		return out;
@@ -216,8 +217,8 @@ struct _lcg_impl<2,_T,Padding,Top|Right> {
 	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
 		std::list<_T> out;
-		for(size_t i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*Padding;++i)
-			for(size_t j=lcg.cell_counts[1]-3*Padding;j<(int)lcg.cell_counts[1]-2*Padding;++j)
+		for(int i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
+			for(int j=lcg.cell_counts[1]-3*Padding;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
 		return out;
 	}
@@ -228,8 +229,8 @@ struct _lcg_impl<2,_T,Padding,Top|Left> {
 	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
 		std::list<_T> out;
-		for(size_t i=0;i<(int)Padding;++i)
-			for(size_t j=lcg.cell_counts[1]-3*Padding;j<(int)lcg.cell_counts[1]-2*Padding;++j)
+		for(int i=0;i<(int)Padding;++i)
+			for(int j=lcg.cell_counts[1]-3*Padding;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
 		return out;
 	}

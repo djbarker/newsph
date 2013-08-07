@@ -138,4 +138,22 @@ void Simulation<2>::exchange()
 	cells.place(rdata_bl,0);
 }
 
+template<>
+vector<Subscript<2>> Simulation<2>::getStencil()
+{
+	vector<Subscript<2>> out = { {+1,+1}, {+0,+1}, {-1,+1}, {-1,+0}, {+0,+0} };
+	return out;
+}
+
+template<>
+vector<Subscript<3>> Simulation<3>::getStencil()
+{
+	vector<Subscript<3>> out = { {-1,-1,-1}, {-1,+0,-1}, {-1,+1,-1},
+								 {+0,-1,-1}, {+0,+0,-1}, {+0,+1,-1},
+								 {+1,-1,-1}, {+1,+0,-1}, {+1,+1,-1},
+								 {-1,-1,+0}, {-1,+0,+0}, {-1,+1,+0},
+								 {+0,+1,+0}, {+0,+0,+0} };
+	return out;
+}
+
 } /* namespace sim */

@@ -17,6 +17,8 @@
 
 using namespace dims;
 
+template<size_t N, class Dims> using qvect = nvect<N,dims::quantity<Dims>>;
+
 /*
  * Convenience functions for working with indices/subscripts
  */
@@ -58,6 +60,40 @@ nvect<Dim,T2> vector_to_nvect(const std::vector<T1>& v)
 	nvect<Dim,T2> out;
 	for(size_t i=0;i<Dim;++i)
 		out[i] = T2(v[i]);
+	return out;
+}
+
+// Vector version of discard_dims, which converts a nvect<N,quantity<Dim,T>> into an nvect<N,T>
+template<size_t N, typename T, typename Dim>
+nvect<N,T> discard_dims(const nvect<N,quantity<Dim,T>>& v)
+{
+	nvect<N,T> out;
+	for(size_t i=0;i<N;++i)
+		out[i] = discard_dims(v[i]);
+	return out;
+}
+
+
+// Casts a general nvect<N,T> into one storing another type U.
+// Note: T must be castable to U.
+template<size_t N, typename T, typename U>
+nvect<N,U> nvect_cast(const nvect<N,T>& v)
+{
+	nvect<N,U> out;
+	for(size_t i=0;i<N;++i)
+		out[i] = (U)v[i];
+	return out;
+}
+
+// Casts an nvect<N,quantity<Dim,T>> to one storing "raw" data of type U
+// i.e. nvect<N,U>
+// Note: T must be castable to U.
+template<size_t N, typename Dim, typename T, typename U>
+nvect<N,U> qvect_cast(const nvect<N,quantity<Dim,T>>& v)
+{
+	nvect<N,U> out;
+	for(size_t i=0;i<N;++i)
+		out[i] = (U)discard_dims(v[i]);
 	return out;
 }
 

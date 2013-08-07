@@ -11,7 +11,7 @@
 using namespace std;
 using namespace sim;
 
-int main(int argc, char* argv[])
+int run_main(int argc, char* argv[])
 {
 	if(argc<2)
 	{
@@ -22,15 +22,19 @@ int main(int argc, char* argv[])
 	cout << std::boolalpha;
 
 	// setup mpi
-	boost::mpi::environment(argc,argv);
+	boost::mpi::environment env(argc,argv,true);
 
 	Simulation<2> theSim;
 
 	// currently only takes one argument - the config file name
 	theSim.loadConfigXML(string(argv[1]));
 
+	cout << "HERE 0 " << endl;
+
 	size_t file_number = 0;
 	theSim.writeOutput(file_number);
+
+	cout << "HERE 1 " << endl;
 
 	double tmax = discard_dims(theSim.parameters().tmax);
 	for(double t=0;t<tmax; t += discard_dims(theSim.parameters().dt))
@@ -38,12 +42,33 @@ int main(int argc, char* argv[])
 		// set values to zero
 		theSim.applyFunctions(physics::ResetVals<2>());
 
-		theSim.doSPHSum<kernels::WendlandQuintic,physics::SigmaCalc<2>>(0u,physics::SigmaCalc<2>());
+		cout << "HERE 2 " << endl;
+
+		// calculate sigma
+		theSim.doSPHSum<kernels::WendlandQuintic>(0u,physics::SigmaCalc<2>());
+
+		cout << "HERE 3 " << endl;
 
 		theSim.writeOutput(file_number);
 		++file_number;
+
+		break;
 	}
 
 
 	return 0;
+}
+
+int main(int argc, char* argv[])
+{
+	try
+	{
+		return run_main(argc,argv);
+	}
+	catch(std::runtime_error& e)
+	{
+		cout << "std::runtime_error: " << e.what() << endl;
+	}
+
+	return 1;
 }
