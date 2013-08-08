@@ -6,6 +6,11 @@ using namespace std;
  * Specialisations of template functions declared in utils.hpp
  */
 
+namespace sim
+{
+namespace utils
+{
+
 template<>
 size_t sub_to_idx<2>(Subscript<2> sub, nvect<2,size_t> extent)
 {
@@ -74,3 +79,7 @@ string strip_whitespace(string s)
 			out.push_back(c);
 	return out;
 }
+
+
+} /* namespace utils */
+} /* namespace sim */

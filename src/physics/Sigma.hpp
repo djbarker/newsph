@@ -19,7 +19,7 @@ struct SigmaCalc {
 	template<class PType>
 	void operator() (PType& a, PType& b, quantity<IntDim<0,-Dim,0>> W_ab, quantity<IntDim<0,-Dim-1,0>> gradW_ab)
 	{
-		cout << W_ab << endl;
+		//cout << W_ab << endl;
 		a.sigma += W_ab;
 
 		if(!a.is(b))

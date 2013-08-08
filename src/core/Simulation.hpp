@@ -9,7 +9,6 @@
 #include <utility>
 #include <initializer_list>
 #include <spud>
-#include <boost/pool/pool_alloc.hpp>
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/mpi/communicator.hpp>
@@ -23,6 +22,8 @@ namespace sim
 {
 
 using namespace std;
+using namespace dims;
+using namespace utils;
 
 template<size_t Dim>
 class Simulation
@@ -77,7 +78,7 @@ private:
 	plist_type wall_particles;
 
 	// TODO: perhaps make LCG hold iterators to the plist_type rather than pointers.
-	LinkedCellGrid<Dim,particle_type*> cells;
+	LinkedCellGrid<Dim,particle_type> cells;
 };
 
 template<size_t Dim>
@@ -518,9 +519,7 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 
 	auto neighbour_cells = getStencil();
 
-	cout << "HERE 0 doSPHSum" << endl;
-
-	typename std::list<particle_type>::iterator itr = fluid_particles.begin();
+	typename plist_type::iterator itr = fluid_particles.begin();
 	while(true)
 	{
 		Subscript<Dim> x_sub = cells.posToSub(itr->pos[tstep]);
@@ -530,12 +529,10 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 		{
 			for(particle_type* part_b : cells.getCell(cells.subToIdx(x_sub+dcell)))
 			{
-				cout << part_b->pos[tstep] << endl;
-				quantity<length>       dist_ab = (itr->pos[tstep]-part_b->pos[tstep]).magnitude();
-				quantity<IntDim<0,-(int)Dim,0>>  W_ab = Kernel<2>::Kernel(dist_ab,params.h);
-				quantity<IntDim<0,-1-(int)Dim,0>> dW_ab = Kernel<2>::Grad(dist_ab,params.h);
 
-				cout << "HERE 2 doSPHSum" << endl;
+				quantity<length>   			    dist_ab = (itr->pos[tstep]-part_b->pos[tstep]).magnitude();
+				quantity<IntDim<0,-(int)Dim,0>>    W_ab = Kernel<2>::Kernel(dist_ab,params.h);
+				quantity<IntDim<0,-1-(int)Dim,0>> dW_ab = Kernel<2>::Grad(dist_ab,params.h);
 
 				// for explanation of this line see: http://stackoverflow.com/questions/18077259/variadic-function-accepting-functors-callable-objects
 				auto dummylist = { ((void)std::forward<Fs>(fs)(*itr,*part_b,W_ab,dW_ab),0)... };
@@ -553,6 +550,7 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 			break;
 	}
 
+	comm.barrier();
 }
 
 /*

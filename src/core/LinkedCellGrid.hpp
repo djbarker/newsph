@@ -4,6 +4,7 @@
 #include <vector>
 #include <list>
 #include <stdexcept>
+#include <boost/pool/pool_alloc.hpp>
 #include "Particle.hpp"
 #include "Region.hpp"
 #include "../utils/utils.hpp"
@@ -26,10 +27,14 @@ enum PaddingLocation
 // forward declaration
 template<size_t _Dim, class _T, size_t _Padding, size_t Loc> struct _lcg_impl;
 
-template<size_t Dim, typename T, size_t Padding=1>
+template< size_t Dim, typename T, size_t Padding=1>
 class LinkedCellGrid
 {
 public:
+
+	// type which is returned when making copies of data
+	typedef std::list<T,boost::fast_pool_allocator<T>> plist_type;
+
 	LinkedCellGrid(){};
 	virtual ~LinkedCellGrid(){};
 
@@ -38,28 +43,28 @@ public:
 	Subscript<Dim> idxToSub(size_t idx);
 	size_t subToIdx(Subscript<Dim> sub);
 	Subscript<Dim> posToSub(const nvect<Dim,quantity<position>>&);
-	std::list<T>& getCell(size_t idx);
+	std::list<T*>& getCell(size_t idx);
 
-	template<template<class U, class A> class Container, class U, class A>
-	void place(Container<U,A>& list, size_t tstep);
+	template<template<class U, class A> class Container, class A>
+	void place(Container<T*,A>& list, size_t tstep);
 
 	template<template<class U, class A> class Container, class A>
 	void place(Container<T,A>& list, size_t tstep);
 
 	void clear();
 
-	// functions which are forwarded to _lcg_imp
-	template<size_t Loc> std::list<T> getBorder();
+	// functions which are forwarded to _lcg_impl
+	template<size_t Loc> plist_type getBorder();
 
 private:
 
 	template<size_t _Dim, class _T, size_t _Padding, size_t Loc> friend struct _lcg_impl;
-	void appendCellContents(std::list<T>& out,Subscript<Dim> cell_sub);
+	void appendCellContents(plist_type& out,Subscript<Dim> cell_sub);
 
 	qvect<Dim,length> lower;
 	qvect<Dim,length> cell_sizes;
 	nvect<Dim,size_t> cell_counts;
-	std::vector<std::list<T>> cells;
+	std::vector<std::list<T*>> cells;
 };
 
 template<size_t Dim, typename T, size_t Padding>
@@ -98,11 +103,11 @@ size_t LinkedCellGrid<Dim,T,Padding>::subToIdx(Subscript<Dim> sub)
 template<size_t Dim, typename T, size_t Padding>
 Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::posToSub(const nvect<Dim,quantity<position>>& pos)
 {
-	return Subscript<Dim>(discard_dims((pos-lower)/cell_sizes)); // "cast" to int
+	return Subscript<Dim>(utils::discard_dims((pos-lower)/cell_sizes)); // "cast" to int
 }
 
 template<size_t Dim, typename T, size_t Padding>
-std::list<T>& LinkedCellGrid<Dim,T,Padding>::getCell(size_t idx)
+std::list<T*>& LinkedCellGrid<Dim,T,Padding>::getCell(size_t idx)
 {
 	return cells[idx];
 }
@@ -114,36 +119,37 @@ void LinkedCellGrid<Dim,T,Padding>::place(Container<T,A>& parts, size_t tstep)
 {
 	for(T t : parts)
 	{
-		cells[subToIdx(posToSub(t->pos[tstep]))].push_back(t);
+		cells[subToIdx(posToSub(t.pos[tstep]))].push_back(&t);
 	}
 }
 
 // place particle_type*
 template<size_t Dim, typename T, size_t Padding>
-template<template<class U, class A> class Container, class U, class A>
-void LinkedCellGrid<Dim,T,Padding>::place(Container<U,A>& parts, size_t tstep)
+template<template<class U, class A> class Container, class A>
+void LinkedCellGrid<Dim,T,Padding>::place(Container<T*,A>& parts, size_t tstep)
 {
-	for(U t : parts)
+	for(T* ptr : parts)
 	{
-		cells[subToIdx(posToSub(t.pos[tstep]))].push_back(&t);
+		cells[subToIdx(posToSub(ptr->pos[tstep]))].push_back(ptr);
 	}
 }
 
 template<size_t Dim, typename T, size_t Padding>
-void LinkedCellGrid<Dim,T,Padding>::appendCellContents(std::list<T>& out, Subscript<Dim> sub)
+void LinkedCellGrid<Dim,T,Padding>::appendCellContents(plist_type& out, Subscript<Dim> sub)
 {
 	size_t idx = subToIdx(sub);
 
-	// copy cell[idx] contents to the end of out
-	std::copy(cells[idx].begin(), cells[idx].end(),
-			  std::back_insert_iterator<std::list<T> >(out));
+	// copy data from T* pointers into plist_type object
+	for(T* pT : cells[idx])
+		out.push_back(*pT);
 }
 
 // clears references to
 template<size_t Dim, typename T, size_t Padding>
 void LinkedCellGrid<Dim,T,Padding>::clear()
 {
-	// TODO: clear
+	for(auto& cell : cells)
+		cell.clear();
 }
 
 /*
@@ -158,8 +164,12 @@ void LinkedCellGrid<Dim,T,Padding>::clear()
  * there is no specilization of _lcg_impl for Left|Right.
  */
 
+/*
+ * Returns a copy of the data that is in the specified border region of the
+ * linked cell grid. Returns a copy so we can use it as an boost::mpi buffer.
+ */
 template<size_t Dim, class T, size_t Padding> template<size_t Loc>
-std::list<T> LinkedCellGrid<Dim,T,Padding>::getBorder()
+typename LinkedCellGrid<Dim,T,Padding>::plist_type LinkedCellGrid<Dim,T,Padding>::getBorder()
 {
 	return _lcg_impl<Dim,T,Padding,Loc>::getBorder(*this);
 }
@@ -168,9 +178,9 @@ std::list<T> LinkedCellGrid<Dim,T,Padding>::getBorder()
 
 template<class _T, size_t Padding>
 struct _lcg_impl<2,_T,Padding,Left> {
-	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
-		std::list<_T> out;
+		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
 		for(int j=0;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
 			for(int i=0;i<(int)Padding;++i)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
@@ -180,9 +190,9 @@ struct _lcg_impl<2,_T,Padding,Left> {
 
 template<class _T, size_t Padding>
 struct _lcg_impl<2,_T,Padding,Right> {
-	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
-		std::list<_T> out;
+		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
 		for(int j=0;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
 			for(int i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
@@ -192,9 +202,9 @@ struct _lcg_impl<2,_T,Padding,Right> {
 
 template<class _T, size_t Padding>
 struct _lcg_impl<2,_T,Padding,Top> {
-	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
-		std::list<_T> out;
+		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
 		for(int i=0;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
 			for(int j=lcg.cell_counts[1]-3*Padding;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
@@ -204,9 +214,9 @@ struct _lcg_impl<2,_T,Padding,Top> {
 
 template<class _T, size_t Padding>
 struct _lcg_impl<2,_T,Padding,Bottom> {
-	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
-		std::list<_T> out;
+		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
 		for(int i=0;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
 			for(int j=0;j<(int)Padding;++j)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
@@ -216,9 +226,9 @@ struct _lcg_impl<2,_T,Padding,Bottom> {
 
 template<class _T, size_t Padding>
 struct _lcg_impl<2,_T,Padding,Bottom|Left> {
-	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
-		std::list<_T> out;
+		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
 		for(int i=0;i<(int)Padding;++i)
 			for(int j=0;j<(int)Padding;++j)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
@@ -228,9 +238,9 @@ struct _lcg_impl<2,_T,Padding,Bottom|Left> {
 
 template<class _T, size_t Padding>
 struct _lcg_impl<2,_T,Padding,Bottom|Right> {
-	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
-		std::list<_T> out;
+		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
 		for(int i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
 			for(int j=0;j<(int)Padding;++j)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
@@ -240,9 +250,9 @@ struct _lcg_impl<2,_T,Padding,Bottom|Right> {
 
 template<class _T, size_t Padding>
 struct _lcg_impl<2,_T,Padding,Top|Right> {
-	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
-		std::list<_T> out;
+		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
 		for(int i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
 			for(int j=lcg.cell_counts[1]-3*Padding;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
 				lcg.appendCellContents(out,Subscript<2>(i,j));
@@ -252,9 +262,9 @@ struct _lcg_impl<2,_T,Padding,Top|Right> {
 
 template<class _T, size_t Padding>
 struct _lcg_impl<2,_T,Padding,Top|Left> {
-	static std::list<_T> getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
-		std::list<_T> out;
+		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
 		for(int i=0;i<(int)Padding;++i)
 			for(int j=lcg.cell_counts[1]-3*Padding;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
 				lcg.appendCellContents(out,Subscript<2>(i,j));

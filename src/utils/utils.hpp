@@ -15,6 +15,11 @@
 #include <dims.hpp>
 #include "../core/Particle.hpp"
 
+namespace sim
+{
+namespace utils
+{
+
 using namespace dims;
 
 template<size_t N, class Dims> using qvect = nvect<N,dims::quantity<Dims>>;
@@ -104,14 +109,20 @@ std::string strip_whitespace(std::string s);
 template<class T>
 int mod(int a, T b)
 {
-	return (a>0?a%(int)b:a+(int)b);
+	return (a>=0?a%(int)b:a+(int)b);
 }
+
+
+} /* namespace utils */
+} /* namespace sim */
 
 /*
  * Functions for serializing quantities and nvects with boost::serialization.
  */
 
 namespace boost { namespace serialization {
+
+using namespace dims;
 
 // load and save quantities
 template<typename Dims, typename T, typename Archive>

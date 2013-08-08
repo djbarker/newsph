@@ -1,6 +1,7 @@
 #include "Simulation.hpp"
 
 #include <boost/mpi/nonblocking.hpp>
+#include <boost/serialization/list.hpp>
 
 using namespace std;
 using namespace boost;
@@ -45,45 +46,58 @@ void Simulation<2>::exchange()
 	 * Send & receive the data.
 	 */
 
+	cout << "proc " << comm_rank << " here A" << endl;
+
 	// left
-	list<particle_type*> sdata_left = cells.getBorder<Left>();
-	list<particle_type*> rdata_left;
+	plist_type sdata_left = cells.getBorder<Left>();
+	cout << "proc " << comm_rank << " here A.1" << endl;
+	plist_type rdata_left;
 	Subscript<2> dest_sub = domain_sub;
-	dest_sub[0] = mod(domain_sub[0]-1,domain_counts[0]);
+	dest_sub[0] = utils::mod(domain_sub[0]-1,domain_counts[0]);
 	int dest_rank = sub_to_idx(dest_sub,domain_counts);
+	cout << "proc " << comm_rank << " here A.2: " << dest_sub << " -> " << dest_rank << ",\t" << sdata_left.size() << endl;
 	reqs[0] = comm.isend(dest_rank,Left,sdata_left);
+	cout << "proc " << comm_rank << " here A.3" << endl;
 	reqs[8] = comm.irecv(dest_rank,Right,rdata_left);
 
+	cout << "proc " << comm_rank << " here B" << endl;
+
 	// right
-	list<particle_type*> sdata_right = cells.getBorder<Right>();
-	list<particle_type*> rdata_right;
+	plist_type sdata_right = cells.getBorder<Right>();
+	plist_type rdata_right;
 	dest_sub = domain_sub;
 	dest_sub[0] = mod(domain_sub[0]+1,domain_counts[0]);
 	dest_rank = sub_to_idx(dest_sub,domain_counts);
 	reqs[1] = comm.isend(dest_rank,Right,sdata_right);
 	reqs[9] = comm.irecv(dest_rank,Left,rdata_right);
 
+	cout << "proc " << comm_rank << " here B" << endl;
+
 	// top
-	list<particle_type*> sdata_top = cells.getBorder<Top>();
-	list<particle_type*> rdata_top;
+	plist_type sdata_top = cells.getBorder<Top>();
+	plist_type rdata_top;
 	dest_sub = domain_sub;
 	dest_sub[1] = mod(domain_sub[1]+1,domain_counts[1]);
 	dest_rank = sub_to_idx(dest_sub,domain_counts);
 	reqs[2]  = comm.isend(dest_rank,Top,sdata_top);
 	reqs[10] = comm.irecv(dest_rank,Bottom,rdata_top);
 
+	cout << "proc " << comm_rank << " here C" << endl;
+
 	// bottom
-	list<particle_type*> sdata_bottom = cells.getBorder<Bottom>();
-	list<particle_type*> rdata_bottom;
+	plist_type sdata_bottom = cells.getBorder<Bottom>();
+	plist_type rdata_bottom;
 	dest_sub = domain_sub;
 	dest_sub[1] = mod(domain_sub[1]-1,domain_counts[1]);
 	dest_rank = sub_to_idx(dest_sub,domain_counts);
 	reqs[3]  = comm.isend(dest_rank,Bottom,sdata_bottom);
 	reqs[11] = comm.irecv(dest_rank,Top,rdata_bottom);
 
+	cout << "proc " << comm_rank << " here D" << endl;
+
 	// top-left
-	list<particle_type*> sdata_tl = cells.getBorder<Top|Left>();
-	list<particle_type*> rdata_tl;
+	plist_type sdata_tl = cells.getBorder<Top|Left>();
+	plist_type rdata_tl;
 	dest_sub = domain_sub;
 	dest_sub[0] = mod(domain_sub[0]-1,domain_counts[0]);
 	dest_sub[1] = mod(domain_sub[1]+1,domain_counts[1]);
@@ -91,9 +105,11 @@ void Simulation<2>::exchange()
 	reqs[4]  = comm.isend(dest_rank,Top|Left,sdata_tl);
 	reqs[12] = comm.irecv(dest_rank,Bottom|Right,rdata_tl);
 
+	cout << "proc " << comm_rank << " here E" << endl;
+
 	// top-right
-	list<particle_type*> sdata_tr = cells.getBorder<Top|Right>();
-	list<particle_type*> rdata_tr;
+	plist_type sdata_tr = cells.getBorder<Top|Right>();
+	plist_type rdata_tr;
 	dest_sub = domain_sub;
 	dest_sub[0] = mod(domain_sub[0]+1,domain_counts[0]);
 	dest_sub[1] = mod(domain_sub[1]+1,domain_counts[1]);
@@ -101,9 +117,11 @@ void Simulation<2>::exchange()
 	reqs[5]  = comm.isend(dest_rank,Top|Right,sdata_tr);
 	reqs[13] = comm.irecv(dest_rank,Bottom|Left,rdata_tr);
 
+	cout << "proc " << comm_rank << " here F" << endl;
+
 	// bottom-right
-	list<particle_type*> sdata_br = cells.getBorder<Bottom|Right>();
-	list<particle_type*> rdata_br;
+	plist_type sdata_br = cells.getBorder<Bottom|Right>();
+	plist_type rdata_br;
 	dest_sub = domain_sub;
 	dest_sub[0] = mod(domain_sub[0]+1,domain_counts[0]);
 	dest_sub[1] = mod(domain_sub[1]-1,domain_counts[1]);
@@ -111,9 +129,11 @@ void Simulation<2>::exchange()
 	reqs[6]  = comm.isend(dest_rank,Bottom|Right,sdata_br);
 	reqs[14] = comm.irecv(dest_rank,Top|Left,rdata_br);
 
+	cout << "proc " << comm_rank << " here G" << endl;
+
 	// bottom-left
-	list<particle_type*> sdata_bl = cells.getBorder<Bottom|Left>();
-	list<particle_type*> rdata_bl;
+	plist_type sdata_bl = cells.getBorder<Bottom|Left>();
+	plist_type rdata_bl;
 	dest_sub = domain_sub;
 	dest_sub[0] = mod(domain_sub[0]-1,domain_counts[0]);
 	dest_sub[1] = mod(domain_sub[1]-1,domain_counts[1]);
@@ -121,8 +141,12 @@ void Simulation<2>::exchange()
 	reqs[7]  = comm.isend(dest_rank,Bottom|Left,sdata_bl);
 	reqs[15] = comm.irecv(dest_rank,Top|Right,rdata_bl);
 
+	cout << "proc " << comm_rank << " here H" << endl;
+
 	// wait for exchange to finish
 	mpi::wait_all(reqs,reqs+16);
+
+	cout << "proc " << comm_rank << " here I" << endl;
 
 	/*
 	 * Put particles into cells
@@ -136,6 +160,8 @@ void Simulation<2>::exchange()
 	cells.place(rdata_tr,0);
 	cells.place(rdata_br,0);
 	cells.place(rdata_bl,0);
+
+	cout << "proc " << comm_rank << " here J" << endl;
 }
 
 template<>

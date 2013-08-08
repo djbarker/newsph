@@ -9,6 +9,8 @@
 namespace sim
 {
 
+using namespace utils;
+
 template<size_t Dim>
 struct Region
 {
