@@ -39,7 +39,13 @@ public:
 	size_t subToIdx(Subscript<Dim> sub);
 	Subscript<Dim> posToSub(const nvect<Dim,quantity<position>>&);
 	std::list<T>& getCell(size_t idx);
-	void place(std::list<T>& list, size_t tstep);
+
+	template<template<class U, class A> class Container, class U, class A>
+	void place(Container<U,A>& list, size_t tstep);
+
+	template<template<class U, class A> class Container, class A>
+	void place(Container<T,A>& list, size_t tstep);
+
 	void clear();
 
 	// functions which are forwarded to _lcg_imp
@@ -101,12 +107,25 @@ std::list<T>& LinkedCellGrid<Dim,T,Padding>::getCell(size_t idx)
 	return cells[idx];
 }
 
+// place particle_type
 template<size_t Dim, typename T, size_t Padding>
-void LinkedCellGrid<Dim,T,Padding>::place(std::list<T>& parts, size_t tstep)
+template<template<class U, class A> class Container, class A>
+void LinkedCellGrid<Dim,T,Padding>::place(Container<T,A>& parts, size_t tstep)
 {
 	for(T t : parts)
 	{
 		cells[subToIdx(posToSub(t->pos[tstep]))].push_back(t);
+	}
+}
+
+// place particle_type*
+template<size_t Dim, typename T, size_t Padding>
+template<template<class U, class A> class Container, class U, class A>
+void LinkedCellGrid<Dim,T,Padding>::place(Container<U,A>& parts, size_t tstep)
+{
+	for(U t : parts)
+	{
+		cells[subToIdx(posToSub(t.pos[tstep]))].push_back(&t);
 	}
 }
 
@@ -118,6 +137,13 @@ void LinkedCellGrid<Dim,T,Padding>::appendCellContents(std::list<T>& out, Subscr
 	// copy cell[idx] contents to the end of out
 	std::copy(cells[idx].begin(), cells[idx].end(),
 			  std::back_insert_iterator<std::list<T> >(out));
+}
+
+// clears references to
+template<size_t Dim, typename T, size_t Padding>
+void LinkedCellGrid<Dim,T,Padding>::clear()
+{
+	// TODO: clear
 }
 
 /*

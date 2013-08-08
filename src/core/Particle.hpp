@@ -38,12 +38,16 @@ public:
 	// properties
 	size_t fluid;
 	size_t wall;
+	size_t id;
 	ParticleType type;
 	nvect<Dim,quantity<position>>		pos[TStep];
 	nvect<Dim,quantity<velocity>>		vel[TStep];
 	nvect<Dim,quantity<acceleration>>	acc;
-	quantity<IntDim<0,-(int)Dim,0>>			sigma;
+	quantity<IntDim<0,-(int)Dim,0>>		sigma;
+	quantity<dims::density>				density[TStep];
+	quantity<dims::pressure>			pressure;
 	nvect<Dim,quantity<IntDim<0,-1,0>>>	gradC[NCol];
+
 
 	typename std::list<Particle<Dim,TStep,NCol>*>::iterator lcg_position;
 };
@@ -52,6 +56,7 @@ template<size_t Dim, size_t TStep, size_t NCol>
 Particle<Dim,TStep,NCol>::Particle()
 :fluid(0)
 ,wall(0)
+,id(std::numeric_limits<size_t>::max()-1)
 ,type(UnusedP)
 {
 }
@@ -61,11 +66,14 @@ void Particle<Dim,TStep,NCol>::serialize(Archive& a, const unsigned int version)
 {
 	a & fluid;
 	a & wall;
+	a & id;
 	a & type;
 	a & pos; // boost automatically handles arrays
 	a & vel;
 	a & acc;
 	a & sigma;
+	a & density;
+	a & pressure;
 	a & gradC;
 }
 

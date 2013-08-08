@@ -29,6 +29,7 @@ class Simulation
 {
 public:
 	typedef sim::Particle<Dim,2,2> particle_type;
+	typedef std::list<particle_type,boost::fast_pool_allocator<particle_type>> plist_type;
 
 	Simulation();
 	virtual ~Simulation(){};
@@ -42,15 +43,17 @@ public:
 	// Setup
 	void init();
 	void floodFill(const Region<Dim>&, const nvect<Dim,quantity<position>>&, size_t fluid);
+	void assignParticleIds();
 
 	// Simulate
 	void exchange();
+	void placeParticlesIntoLinkedCellGrid(size_t tstep);
 	template<template<int> class K, typename... Fs> void doSPHSum(size_t tstep, Fs&&... fs);
 	template<typename... Fs> void applyFunctions(Fs&&... fs);
 
 	const Parameters<Dim>& parameters() const;
-	const std::vector<particle_type>& fluidParticles() const;
-	const std::vector<particle_type>& wallParticles() const;
+	const plist_type& fluidParticles() const;
+	const plist_type& wallParticles() const;
 
 private:
 
@@ -70,10 +73,10 @@ private:
 	std::vector<Fluid>	fluids; // fluid parameters
 
 	// lists for particles
-	typedef std::list<particle_type,boost::fast_pool_allocator<particle_type>> plist_type;
 	plist_type fluid_particles;
 	plist_type wall_particles;
 
+	// TODO: perhaps make LCG hold iterators to the plist_type rather than pointers.
 	LinkedCellGrid<Dim,particle_type*> cells;
 };
 
@@ -293,10 +296,10 @@ void Simulation<Dim>::loadConfigXML(std::string fname)
 		floodFill(fill_region,start_point,(size_t)tmpi);
 
 		if(!comm_rank) cout << "Done" << endl;
-
-		// wait for others to finish
-		comm.barrier();
 	}
+
+	// finished setting up - assign ids to the particles
+	assignParticleIds();
 
 }
 
@@ -411,13 +414,37 @@ void Simulation<Dim>::loadWall(std::string fname)
 }
 
 template<size_t Dim>
-const std::vector<typename Simulation<Dim>::particle_type>& Simulation<Dim>::fluidParticles() const
+void Simulation<Dim>::assignParticleIds()
+{
+	size_t gid = 0;
+
+	if(comm_rank>0)
+		comm.recv(comm_rank-1,comm_rank,gid);
+
+	for(auto& part : fluid_particles)
+	{
+		part.id = gid;
+		gid++;
+	}
+
+	for(auto& part : wall_particles)
+	{
+		part.id = gid;
+		gid++;
+	}
+
+	if(comm_rank<comm_size-1)
+		comm.send(comm_rank+1,comm_rank+1,gid);
+}
+
+template<size_t Dim>
+const typename Simulation<Dim>::plist_type& Simulation<Dim>::fluidParticles() const
 {
 	return fluid_particles;
 }
 
 template<size_t Dim>
-const std::vector<typename Simulation<Dim>::particle_type>& Simulation<Dim>::wallParticles() const
+const typename Simulation<Dim>::plist_type& Simulation<Dim>::wallParticles() const
 {
 	return wall_particles;
 }
@@ -463,6 +490,19 @@ const Parameters<Dim>& Simulation<Dim>::parameters() const
 }
 
 /*
+ * This function puts wall_particles and fluid_particles into the correct sublists based
+ * upon their positions at the specified timestep.
+ */
+template<size_t Dim>
+void Simulation<Dim>::placeParticlesIntoLinkedCellGrid(size_t tstep)
+{
+	cells.clear();
+
+	cells.place(fluid_particles,tstep);
+	cells.place(wall_particles,tstep);
+}
+
+/*
  * This function is used to actually perform the SPH sums over fluid & wall
  * particles. It accepts any callable objects of the form
  *
@@ -478,6 +518,8 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 
 	auto neighbour_cells = getStencil();
 
+	cout << "HERE 0 doSPHSum" << endl;
+
 	typename std::list<particle_type>::iterator itr = fluid_particles.begin();
 	while(true)
 	{
@@ -492,6 +534,8 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 				quantity<length>       dist_ab = (itr->pos[tstep]-part_b->pos[tstep]).magnitude();
 				quantity<IntDim<0,-(int)Dim,0>>  W_ab = Kernel<2>::Kernel(dist_ab,params.h);
 				quantity<IntDim<0,-1-(int)Dim,0>> dW_ab = Kernel<2>::Grad(dist_ab,params.h);
+
+				cout << "HERE 2 doSPHSum" << endl;
 
 				// for explanation of this line see: http://stackoverflow.com/questions/18077259/variadic-function-accepting-functors-callable-objects
 				auto dummylist = { ((void)std::forward<Fs>(fs)(*itr,*part_b,W_ab,dW_ab),0)... };
