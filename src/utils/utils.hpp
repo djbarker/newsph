@@ -106,10 +106,20 @@ bool is_whitespace(char c);
 std::string strip_whitespace(std::string s);
 
 // only works if a > -b
-template<class T>
-int mod(int a, T b)
+template<class T, class U>
+T mod(T a, U b)
 {
 	return (a>=0?a%(int)b:a+(int)b);
+}
+
+// vectorized version
+template<size_t N, typename T, typename U>
+nvect<N,T> mod(const nvect<N,T>& a, const nvect<N,U>& b)
+{
+	nvect<N,T> out;
+	for(size_t i=0;i<N;++i)
+		out[i] = mod(a[i],b[i]);
+	return out;
 }
 
 

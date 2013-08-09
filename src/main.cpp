@@ -2,6 +2,7 @@
 #include <fstream>
 #include <iomanip>
 #include <boost/mpi/environment.hpp>
+#include <boost/mpi/nonblocking.hpp>
 
 #include "core/Simulation.hpp"
 #include "physics/PredictorCorrector.hpp"
@@ -14,6 +15,7 @@
 
 using namespace std;
 using namespace sim;
+using namespace dims;
 
 int run_main(int argc, char* argv[])
 {
@@ -54,6 +56,7 @@ int run_main(int argc, char* argv[])
 
 		theSim.exchange();
 
+		MPI_Barrier(MPI_COMM_WORLD);
 		cout << "HERE 4 " << endl;
 
 		// calculate sigma

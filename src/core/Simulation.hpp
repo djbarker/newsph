@@ -76,6 +76,7 @@ private:
 	// lists for particles
 	plist_type fluid_particles;
 	plist_type wall_particles;
+	plist_type neighbour_particles; // particles received from other processes
 
 	// TODO: perhaps make LCG hold iterators to the plist_type rather than pointers.
 	LinkedCellGrid<Dim,particle_type> cells;
@@ -529,7 +530,6 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 		{
 			for(particle_type* part_b : cells.getCell(cells.subToIdx(x_sub+dcell)))
 			{
-
 				quantity<length>   			    dist_ab = (itr->pos[tstep]-part_b->pos[tstep]).magnitude();
 				quantity<IntDim<0,-(int)Dim,0>>    W_ab = Kernel<2>::Kernel(dist_ab,params.h);
 				quantity<IntDim<0,-1-(int)Dim,0>> dW_ab = Kernel<2>::Grad(dist_ab,params.h);
@@ -538,7 +538,6 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 				auto dummylist = { ((void)std::forward<Fs>(fs)(*itr,*part_b,W_ab,dW_ab),0)... };
 				(void)dummylist; // stop the compiler warning about unused variable
 			}
-
 		}
 
 		++itr;

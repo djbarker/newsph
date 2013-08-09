@@ -53,17 +53,18 @@ public:
 
 	void clear();
 
-	// functions which are forwarded to _lcg_impl
-	template<size_t Loc> plist_type getBorder();
+	// functions which are forwarded
+	template<size_t Loc> plist_type	getBorder();
+	template<size_t Loc> void		clearPadding();
 
 private:
-
 	template<size_t _Dim, class _T, size_t _Padding, size_t Loc> friend struct _lcg_impl;
-	void appendCellContents(plist_type& out,Subscript<Dim> cell_sub);
+	void copyCellContents(plist_type& out,Subscript<Dim> cell_sub);
 
 	qvect<Dim,length> lower;
 	qvect<Dim,length> cell_sizes;
-	nvect<Dim,size_t> cell_counts;
+	Extent<Dim> cell_counts; // including padding
+	nvect<Dim,int> cell_counts_unpadded;
 	std::vector<std::list<T*>> cells;
 };
 
@@ -72,6 +73,7 @@ void LinkedCellGrid<Dim,T,Padding>::init(qvect<Dim,length> cell_sizes, Extent<Di
 {
 	this->cell_sizes = cell_sizes;
 	this->cell_counts = cell_counts;
+	this->cell_counts_unpadded = nvect<Dim,int>(cell_counts);
 	this->lower = lower;
 
 	// total number of cells
@@ -88,27 +90,46 @@ void LinkedCellGrid<Dim,T,Padding>::init(qvect<Dim,length> cell_sizes, Extent<Di
 	cells.resize(ncells);
 }
 
+/*
+ * The convert the index of a cell to a subscript. The subscript does not include
+ * padding so in 2D - for example - the first cell has subscript (-Paddding,-Padding)
+ * but index 0.
+ */
 template<size_t Dim, typename T, size_t Padding>
 Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::idxToSub(size_t idx)
 {
 	return idx_to_sub(idx,cell_counts)-Subscript<Dim>(Padding);
 }
 
+/*
+ * Convert a subscript to a cell index. This automatically accounts for padding.
+ * So in 2D - for example - the subscript (-P,-P) returns the index zero, where
+ * P is the number of padding cells.
+ */
 template<size_t Dim, typename T, size_t Padding>
 size_t LinkedCellGrid<Dim,T,Padding>::subToIdx(Subscript<Dim> sub)
 {
 	return sub_to_idx(sub+Subscript<Dim>(Padding),cell_counts);
 }
 
+/*
+ * Returns the correct subscript for a position. Note, if the position is
+ * inside the lower-left padded region - say - then it will return (-1,-1).
+ */
 template<size_t Dim, typename T, size_t Padding>
 Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::posToSub(const nvect<Dim,quantity<position>>& pos)
 {
 	return Subscript<Dim>(utils::discard_dims((pos-lower)/cell_sizes)); // "cast" to int
 }
 
+/*
+ * Returns the list of particle pointers which corresponds to the given index.
+ */
 template<size_t Dim, typename T, size_t Padding>
 std::list<T*>& LinkedCellGrid<Dim,T,Padding>::getCell(size_t idx)
 {
+	if(idx<0 || idx>=cells.size())
+		cout << lower << ": invalid idx in getCell(" << idx << ")" << endl;
 	return cells[idx];
 }
 
@@ -117,8 +138,12 @@ template<size_t Dim, typename T, size_t Padding>
 template<template<class U, class A> class Container, class A>
 void LinkedCellGrid<Dim,T,Padding>::place(Container<T,A>& parts, size_t tstep)
 {
-	for(T t : parts)
+	for(T& t : parts)
 	{
+		/*if(subToIdx(posToSub(t.pos[tstep]))<0 || subToIdx(posToSub(t.pos[tstep]))>=cells.size())
+		{
+			cout << lower << ": invalid index " << subToIdx(posToSub(t.pos[tstep])) << " caused by sub " << posToSub(t.pos[tstep]) << " caused by position " << t.pos[tstep] << endl;
+		}*/
 		cells[subToIdx(posToSub(t.pos[tstep]))].push_back(&t);
 	}
 }
@@ -134,17 +159,25 @@ void LinkedCellGrid<Dim,T,Padding>::place(Container<T*,A>& parts, size_t tstep)
 	}
 }
 
+/*
+ * Appends the contents of the cell specified by a subscript to the list
+ * given as the first paramter. Note that this copies the data.
+ */
 template<size_t Dim, typename T, size_t Padding>
-void LinkedCellGrid<Dim,T,Padding>::appendCellContents(plist_type& out, Subscript<Dim> sub)
+void LinkedCellGrid<Dim,T,Padding>::copyCellContents(plist_type& out, Subscript<Dim> sub)
 {
 	size_t idx = subToIdx(sub);
 
 	// copy data from T* pointers into plist_type object
 	for(T* pT : cells[idx])
+	{
 		out.push_back(*pT);
+	}
 }
 
-// clears references to
+/*
+ * Clears all particles from the linked cell grid.
+ */
 template<size_t Dim, typename T, size_t Padding>
 void LinkedCellGrid<Dim,T,Padding>::clear()
 {
@@ -152,8 +185,12 @@ void LinkedCellGrid<Dim,T,Padding>::clear()
 		cell.clear();
 }
 
+
+
 /*
- * Really we would want to partially this member function for Dim and Loc
+ * Implementation Note:
+ *
+ * Really we would want to partially these member function for Dim and Loc
  * but we cannot partially specialize members without partially specializing
  * the whole class so we are forced to forward the implementation. To
  * an intermediate struct which we can partially specialize.
@@ -161,7 +198,8 @@ void LinkedCellGrid<Dim,T,Padding>::clear()
  * This leads to more verbose syntax here but maintains compile time safety,
  * without affecting syntax elsewhere. E.g. if we accidently tried
  * to call getBorder<Left|Right>() it would not compile because
- * there is no specilization of _lcg_impl for Left|Right.
+ * there is no specilization of _lcg_impl for Left|Right. (Though the compiler
+ * message would be like trying to read Linear A)
  */
 
 /*
@@ -174,16 +212,28 @@ typename LinkedCellGrid<Dim,T,Padding>::plist_type LinkedCellGrid<Dim,T,Padding>
 	return _lcg_impl<Dim,T,Padding,Loc>::getBorder(*this);
 }
 
-// partial specializations for Dim and Loc
+/*
+ * Clears the padding at the specified location. Note that this doesn't delete
+ * the particles it just removes them from the linked cell grid.
+ */
+template<size_t Dim, class T, size_t Padding> template<size_t Loc>
+void LinkedCellGrid<Dim,T,Padding>::clearPadding()
+{
+	return _lcg_impl<Dim,T,Padding,Loc>::clearPadding(*this);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//                                     2D                                    //
+///////////////////////////////////////////////////////////////////////////////
 
 template<class _T, size_t Padding>
 struct _lcg_impl<2,_T,Padding,Left> {
 	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
 		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int j=0;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
+		for(int j=0;j<lcg.cell_counts_unpadded[1];++j)
 			for(int i=0;i<(int)Padding;++i)
-				lcg.appendCellContents(out,Subscript<2>(i,j));
+				lcg.copyCellContents(out,Subscript<2>(i,j));
 		return out;
 	}
 };
@@ -193,9 +243,9 @@ struct _lcg_impl<2,_T,Padding,Right> {
 	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
 		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int j=0;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
-			for(int i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
-				lcg.appendCellContents(out,Subscript<2>(i,j));
+		for(int j=0;j<lcg.cell_counts_unpadded[1];++j)
+			for(int i=lcg.cell_counts_unpadded[0]-1-Padding;i<lcg.cell_counts_unpadded[0];++i)
+				lcg.copyCellContents(out,Subscript<2>(i,j));
 		return out;
 	}
 };
@@ -205,9 +255,9 @@ struct _lcg_impl<2,_T,Padding,Top> {
 	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
 		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int i=0;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
-			for(int j=lcg.cell_counts[1]-3*Padding;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
-				lcg.appendCellContents(out,Subscript<2>(i,j));
+		for(int i=0;i<lcg.cell_counts_unpadded[0];++i)
+			for(int j=lcg.cell_counts_unpadded[1]-1-Padding;j<lcg.cell_counts_unpadded[1];++j)
+				lcg.copyCellContents(out,Subscript<2>(i,j));
 		return out;
 	}
 };
@@ -217,9 +267,9 @@ struct _lcg_impl<2,_T,Padding,Bottom> {
 	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
 		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int i=0;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
+		for(int i=0;i<lcg.cell_counts_unpadded[0];++i)
 			for(int j=0;j<(int)Padding;++j)
-				lcg.appendCellContents(out,Subscript<2>(i,j));
+				lcg.copyCellContents(out,Subscript<2>(i,j));
 		return out;
 	}
 };
@@ -231,7 +281,7 @@ struct _lcg_impl<2,_T,Padding,Bottom|Left> {
 		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
 		for(int i=0;i<(int)Padding;++i)
 			for(int j=0;j<(int)Padding;++j)
-				lcg.appendCellContents(out,Subscript<2>(i,j));
+				lcg.copyCellContents(out,Subscript<2>(i,j));
 		return out;
 	}
 };
@@ -241,9 +291,9 @@ struct _lcg_impl<2,_T,Padding,Bottom|Right> {
 	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
 		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
+		for(int i=lcg.cell_counts_unpadded[0]-1-Padding;i<lcg.cell_counts_unpadded[0];++i)
 			for(int j=0;j<(int)Padding;++j)
-				lcg.appendCellContents(out,Subscript<2>(i,j));
+				lcg.copyCellContents(out,Subscript<2>(i,j));
 		return out;
 	}
 };
@@ -253,9 +303,9 @@ struct _lcg_impl<2,_T,Padding,Top|Right> {
 	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
 		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int i=lcg.cell_counts[0]-3*Padding;i<(int)lcg.cell_counts[0]-2*(int)Padding;++i)
-			for(int j=lcg.cell_counts[1]-3*Padding;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
-				lcg.appendCellContents(out,Subscript<2>(i,j));
+		for(int i=lcg.cell_counts_unpadded[0]-1-Padding;i<lcg.cell_counts_unpadded[0];++i)
+			for(int j=lcg.cell_counts_unpadded[1]-1-Padding;j<lcg.cell_counts_unpadded[1];++j)
+				lcg.copyCellContents(out,Subscript<2>(i,j));
 		return out;
 	}
 };
@@ -266,12 +316,15 @@ struct _lcg_impl<2,_T,Padding,Top|Left> {
 	{
 		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
 		for(int i=0;i<(int)Padding;++i)
-			for(int j=lcg.cell_counts[1]-3*Padding;j<(int)lcg.cell_counts[1]-2*(int)Padding;++j)
-				lcg.appendCellContents(out,Subscript<2>(i,j));
+			for(int j=lcg.cell_counts_unpadded[1]-1-Padding;j<lcg.cell_counts_unpadded[1];++j)
+				lcg.copyCellContents(out,Subscript<2>(i,j));
 		return out;
 	}
 };
 
+///////////////////////////////////////////////////////////////////////////////
+//                                     3D                                    //
+///////////////////////////////////////////////////////////////////////////////
 
 }
 

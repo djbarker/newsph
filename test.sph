@@ -12,8 +12,11 @@
     <directory>
       <string_value lines="1">output</string_value>
     </directory>
+    <root>
+      <string_value lines="1">test_out/out</string_value>
+    </root>
     <walls>
-      <string_value type="filename" lines="1">test.wob</string_value>
+      <string_value lines="1" type="filename">test.wob</string_value>
     </walls>
   </file_io>
   <sph>
