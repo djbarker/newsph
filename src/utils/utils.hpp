@@ -33,8 +33,8 @@ template<size_t Dim> using Subscript = nvect<Dim,int>;
 template<size_t Dim> using Extent = nvect<Dim,size_t>;
 
 // TODO: make these (and nvect) pass by rvalue
-template<size_t Dim> size_t	sub_to_idx(Subscript<Dim> sub, Extent<Dim> extent);
-template<size_t Dim> Subscript<Dim> idx_to_sub(size_t idx, Extent<Dim> extent);
+template<size_t Dim> size_t	sub_to_idx(const Subscript<Dim>& sub, const Extent<Dim>& extent);
+template<size_t Dim> Subscript<Dim> idx_to_sub(size_t idx, const Extent<Dim>& extent);
 
 /*
  * Decompose the domain
@@ -120,6 +120,36 @@ nvect<N,T> mod(const nvect<N,T>& a, const nvect<N,U>& b)
 	for(size_t i=0;i<N;++i)
 		out[i] = mod(a[i],b[i]);
 	return out;
+}
+
+/*
+ * A function for performing multidimensional for loops in generic code. It
+ * uses same constructoin as Simulation::doSPHSum and applyFunction. Note,
+ * since we cannot partially specialize a function we overload on the mins/maxs
+ * types instead (has the same effect to the user though makes maintainence
+ * more of a pain).
+ */
+template<typename... Fs>
+void multi_for(Subscript<2> mins, Subscript<2> maxs, Fs&&... fs)
+{
+	for(int i=mins[0];i<maxs[0];++i)
+		for(int j=mins[1];j<maxs[1];++j)
+		{
+			auto dummylist = { ((void)std::forward<Fs>(fs)(Subscript<2>{i,j}),0)... };
+			(void)dummylist;
+		}
+}
+
+template<typename... Fs>
+void multi_for(Subscript<3> mins, Subscript<3> maxs, Fs&&... fs)
+{
+	for(int i=mins[0];i<maxs[0];++i)
+		for(int j=mins[1];j<maxs[1];++j)
+			for(int k=mins[2];k<maxs[2];++k)
+			{
+				auto dummylist = { ((void)std::forward<Fs>(fs)(Subscript<3>{i,j,k}),0)... };
+				(void)dummylist;
+			}
 }
 
 

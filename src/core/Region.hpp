@@ -38,7 +38,7 @@ bool Region<Dim>::inside(const nvect<Dim,quantity<length>>& pos)
 	if(ellipse)
 		return test_ellipse<Dim>(pos,upper,lower);
 	else
-		return (lower<pos) && (pos<=upper);
+		return (lower<=pos) && (pos<=upper);
 }
 
 template<size_t Dim> template<class Archive>

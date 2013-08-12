@@ -48,28 +48,17 @@ int run_main(int argc, char* argv[])
 		// set values to zero
 		theSim.applyFunctions(physics::ResetVals<DIM>());
 
-		cout << "HERE 2 " << endl;
-
 		theSim.placeParticlesIntoLinkedCellGrid(0);
 
-		cout << "HERE 3 " << endl;
-
 		theSim.exchange();
-
-		MPI_Barrier(MPI_COMM_WORLD);
-		cout << "HERE 4 " << endl;
 
 		// calculate sigma
 		theSim.doSPHSum<kernels::WendlandQuintic>(0u,physics::SigmaCalc<DIM>());
 
-		cout << "HERE 5 " << endl;
-
 		theSim.writeOutput(file_number);
 		++file_number;
 
-		cout << "HERE 6 " << endl;
-
-		if(t>0.) break;
+		if(t>0.001) break;
 	}
 
 

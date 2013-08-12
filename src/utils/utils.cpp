@@ -12,19 +12,19 @@ namespace utils
 {
 
 template<>
-size_t sub_to_idx<2>(Subscript<2> sub, nvect<2,size_t> extent)
+size_t sub_to_idx<2>(const Subscript<2>& sub, const nvect<2,size_t>& extent)
 {
-	return sub[0]+sub[1]*extent[0];
+	return sub[0]+sub[1]*((int)extent[0]);
 }
 
 template<>
-size_t sub_to_idx<3>(Subscript<3> sub, nvect<3,size_t> extent)
+size_t sub_to_idx<3>(const Subscript<3>& sub, const nvect<3,size_t>& extent)
 {
-	return sub[0]+extent[0]*(sub[1]+sub[2]*extent[1]);
+	return sub[0]+((int)extent[0])*(sub[1]+sub[2]*((int)extent[1]));
 }
 
 template<>
-Subscript<2> idx_to_sub<2>(size_t idx, nvect<2,size_t> extent)
+Subscript<2> idx_to_sub<2>(size_t idx, const nvect<2,size_t>& extent)
 {
 	Subscript<2> out;
 	out[0] = idx % extent[0];
@@ -33,7 +33,7 @@ Subscript<2> idx_to_sub<2>(size_t idx, nvect<2,size_t> extent)
 }
 
 template<>
-Subscript<3> idx_to_sub<3>(size_t idx, nvect<3,size_t> extent)
+Subscript<3> idx_to_sub<3>(size_t idx, const nvect<3,size_t>& extent)
 {
 	Subscript<3> out;
 	out[0] = idx % extent[0];

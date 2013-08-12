@@ -25,7 +25,7 @@ enum PaddingLocation
 };
 
 // forward declaration
-template<size_t _Dim, class _T, size_t _Padding, size_t Loc> struct _lcg_impl;
+template<size_t _Dim, class _T, int _Padding, size_t Loc> struct _lcg_impl;
 
 template< size_t Dim, typename T, size_t Padding=1>
 class LinkedCellGrid
@@ -41,9 +41,10 @@ public:
 	void init(qvect<Dim,length> cell_size, Extent<Dim> cell_counts, qvect<Dim,length> lower);
 
 	Subscript<Dim> idxToSub(size_t idx);
-	size_t subToIdx(Subscript<Dim> sub);
+	size_t subToIdx(const Subscript<Dim>& sub);
 	Subscript<Dim> posToSub(const nvect<Dim,quantity<position>>&);
 	std::list<T*>& getCell(size_t idx);
+	Extent<Dim> cellCount() const;
 
 	template<template<class U, class A> class Container, class A>
 	void place(Container<T*,A>& list, size_t tstep);
@@ -58,8 +59,8 @@ public:
 	template<size_t Loc> void		clearPadding();
 
 private:
-	template<size_t _Dim, class _T, size_t _Padding, size_t Loc> friend struct _lcg_impl;
-	void copyCellContents(plist_type& out,Subscript<Dim> cell_sub);
+	template<size_t _Dim, class _T, int _Padding, size_t Loc> friend struct _lcg_impl;
+	void copyCellContents(plist_type& out, const Subscript<Dim>& cell_sub);
 
 	qvect<Dim,length> lower;
 	qvect<Dim,length> cell_sizes;
@@ -80,11 +81,9 @@ void LinkedCellGrid<Dim,T,Padding>::init(qvect<Dim,length> cell_sizes, Extent<Di
 	size_t ncells = 1;
 	for(size_t i=0;i<Dim;++i)
 	{
-		cell_counts[i] += 2*Padding;
-		ncells *= cell_counts[i];
+		this->cell_counts[i] += 2*Padding;
+		ncells *= this->cell_counts[i];
 	}
-
-	cout << ncells << endl;
 
 	// create empty cells
 	cells.resize(ncells);
@@ -98,7 +97,7 @@ void LinkedCellGrid<Dim,T,Padding>::init(qvect<Dim,length> cell_sizes, Extent<Di
 template<size_t Dim, typename T, size_t Padding>
 Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::idxToSub(size_t idx)
 {
-	return idx_to_sub(idx,cell_counts)-Subscript<Dim>(Padding);
+	return idx_to_sub(idx,cell_counts)-make_vect<Dim,int>(Padding);
 }
 
 /*
@@ -107,9 +106,9 @@ Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::idxToSub(size_t idx)
  * P is the number of padding cells.
  */
 template<size_t Dim, typename T, size_t Padding>
-size_t LinkedCellGrid<Dim,T,Padding>::subToIdx(Subscript<Dim> sub)
+size_t LinkedCellGrid<Dim,T,Padding>::subToIdx(const Subscript<Dim>& sub)
 {
-	return sub_to_idx(sub+Subscript<Dim>(Padding),cell_counts);
+	return sub_to_idx(sub+make_vect<Dim,int>(Padding),cell_counts);
 }
 
 /*
@@ -128,9 +127,16 @@ Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::posToSub(const nvect<Dim,quantity<
 template<size_t Dim, typename T, size_t Padding>
 std::list<T*>& LinkedCellGrid<Dim,T,Padding>::getCell(size_t idx)
 {
-	if(idx<0 || idx>=cells.size())
-		cout << lower << ": invalid idx in getCell(" << idx << ")" << endl;
 	return cells[idx];
+}
+
+/*
+ * Returns the unpadded cell count in each direction.
+ */
+template<size_t Dim, typename T, size_t Padding>
+Extent<Dim> LinkedCellGrid<Dim,T,Padding>::cellCount() const
+{
+	return Extent<Dim>(cell_counts_unpadded);
 }
 
 // place particle_type
@@ -164,7 +170,7 @@ void LinkedCellGrid<Dim,T,Padding>::place(Container<T*,A>& parts, size_t tstep)
  * given as the first paramter. Note that this copies the data.
  */
 template<size_t Dim, typename T, size_t Padding>
-void LinkedCellGrid<Dim,T,Padding>::copyCellContents(plist_type& out, Subscript<Dim> sub)
+void LinkedCellGrid<Dim,T,Padding>::copyCellContents(plist_type& out, const Subscript<Dim>& sub)
 {
 	size_t idx = subToIdx(sub);
 
@@ -209,7 +215,18 @@ void LinkedCellGrid<Dim,T,Padding>::clear()
 template<size_t Dim, class T, size_t Padding> template<size_t Loc>
 typename LinkedCellGrid<Dim,T,Padding>::plist_type LinkedCellGrid<Dim,T,Padding>::getBorder()
 {
-	return _lcg_impl<Dim,T,Padding,Loc>::getBorder(*this);
+	plist_type out;
+
+	// get limits of the border region cell subscripts
+	Subscript<Dim> bmin = _lcg_impl<Dim,T,Padding,Loc>::borderMin(*this);
+	Subscript<Dim> bmax = _lcg_impl<Dim,T,Padding,Loc>::borderMax(*this);
+
+	// copy the cell contents
+	utils::multi_for(bmin,bmax,[&](const Subscript<Dim>& loop_pos)->void{
+		copyCellContents(out,loop_pos);
+	});
+
+	return out;
 }
 
 /*
@@ -219,108 +236,205 @@ typename LinkedCellGrid<Dim,T,Padding>::plist_type LinkedCellGrid<Dim,T,Padding>
 template<size_t Dim, class T, size_t Padding> template<size_t Loc>
 void LinkedCellGrid<Dim,T,Padding>::clearPadding()
 {
-	return _lcg_impl<Dim,T,Padding,Loc>::clearPadding(*this);
+	// get limits of the border region cell subscripts
+	Subscript<Dim> min = _lcg_impl<Dim,T,Padding,Loc>::paddingMin(*this);
+	Subscript<Dim> max = _lcg_impl<Dim,T,Padding,Loc>::paddingMax(*this);
+
+	// copy the cell contents
+	utils::multi_for(min,max,[&](const Subscript<Dim>& loop_pos)->void{
+		cells[subToIdx(loop_pos)].clear();
+	});
+
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 //                                     2D                                    //
 ///////////////////////////////////////////////////////////////////////////////
 
-template<class _T, size_t Padding>
+template<class _T, int Padding>
 struct _lcg_impl<2,_T,Padding,Left> {
-	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	static Subscript<2> borderMin(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
-		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int j=0;j<lcg.cell_counts_unpadded[1];++j)
-			for(int i=0;i<(int)Padding;++i)
-				lcg.copyCellContents(out,Subscript<2>(i,j));
-		return out;
+		return Subscript<2>( 0, 0 );
+	}
+
+	static Subscript<2> borderMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( Padding, lcg.cell_counts_unpadded[1] );
+	}
+
+	static Subscript<2> paddingMin(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( -Padding, 0 );
+	}
+
+	static Subscript<2> paddingMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( 0, lcg.cell_counts_unpadded[1] );
 	}
 };
 
-template<class _T, size_t Padding>
+template<class _T, int Padding>
 struct _lcg_impl<2,_T,Padding,Right> {
-	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	static Subscript<2> borderMin(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
-		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int j=0;j<lcg.cell_counts_unpadded[1];++j)
-			for(int i=lcg.cell_counts_unpadded[0]-1-Padding;i<lcg.cell_counts_unpadded[0];++i)
-				lcg.copyCellContents(out,Subscript<2>(i,j));
-		return out;
+		return Subscript<2>( lcg.cell_counts_unpadded[0]-Padding, 0 );
+	}
+
+	static Subscript<2> borderMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0], lcg.cell_counts_unpadded[1] );
+	}
+
+	static Subscript<2> paddingMin(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0], 0 );
+	}
+
+	static Subscript<2> paddingMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0]+Padding, lcg.cell_counts_unpadded[1] );
 	}
 };
 
-template<class _T, size_t Padding>
-struct _lcg_impl<2,_T,Padding,Top> {
-	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
-	{
-		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int i=0;i<lcg.cell_counts_unpadded[0];++i)
-			for(int j=lcg.cell_counts_unpadded[1]-1-Padding;j<lcg.cell_counts_unpadded[1];++j)
-				lcg.copyCellContents(out,Subscript<2>(i,j));
-		return out;
-	}
-};
-
-template<class _T, size_t Padding>
+template<class _T, int Padding>
 struct _lcg_impl<2,_T,Padding,Bottom> {
-	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	static Subscript<2> borderMin(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
-		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int i=0;i<lcg.cell_counts_unpadded[0];++i)
-			for(int j=0;j<(int)Padding;++j)
-				lcg.copyCellContents(out,Subscript<2>(i,j));
-		return out;
+		return Subscript<2>( 0, 0 );
+	}
+
+	static Subscript<2> borderMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0], Padding );
+	}
+
+	static Subscript<2> paddingMin(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( 0, -Padding );
+	}
+
+	static Subscript<2> paddingMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0], 0 );
 	}
 };
 
-template<class _T, size_t Padding>
+template<class _T, int Padding>
+struct _lcg_impl<2,_T,Padding,Top> {
+	static Subscript<2> borderMin(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( 0, lcg.cell_counts_unpadded[1]-Padding );
+	}
+
+	static Subscript<2> borderMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0], lcg.cell_counts_unpadded[1] );
+	}
+
+	static Subscript<2> paddingMin(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( 0, lcg.cell_counts_unpadded[1] );
+	}
+
+	static Subscript<2> paddingMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0], lcg.cell_counts_unpadded[1]+Padding );
+	}
+};
+
+template<class _T, int Padding>
 struct _lcg_impl<2,_T,Padding,Bottom|Left> {
-	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	static Subscript<2> borderMin(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
-		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int i=0;i<(int)Padding;++i)
-			for(int j=0;j<(int)Padding;++j)
-				lcg.copyCellContents(out,Subscript<2>(i,j));
-		return out;
+		return Subscript<2>( 0, 0 );
+	}
+
+	static Subscript<2> borderMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( Padding, Padding );
+	}
+
+	static Subscript<2> paddingMin(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( -Padding, -Padding );
+	}
+
+	static Subscript<2> paddingMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( 0, 0 );
 	}
 };
 
-template<class _T, size_t Padding>
-struct _lcg_impl<2,_T,Padding,Bottom|Right> {
-	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
-	{
-		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int i=lcg.cell_counts_unpadded[0]-1-Padding;i<lcg.cell_counts_unpadded[0];++i)
-			for(int j=0;j<(int)Padding;++j)
-				lcg.copyCellContents(out,Subscript<2>(i,j));
-		return out;
-	}
-};
-
-template<class _T, size_t Padding>
-struct _lcg_impl<2,_T,Padding,Top|Right> {
-	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
-	{
-		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int i=lcg.cell_counts_unpadded[0]-1-Padding;i<lcg.cell_counts_unpadded[0];++i)
-			for(int j=lcg.cell_counts_unpadded[1]-1-Padding;j<lcg.cell_counts_unpadded[1];++j)
-				lcg.copyCellContents(out,Subscript<2>(i,j));
-		return out;
-	}
-};
-
-template<class _T, size_t Padding>
+template<class _T, int Padding>
 struct _lcg_impl<2,_T,Padding,Top|Left> {
-	static typename LinkedCellGrid<2,_T,Padding>::plist_type getBorder(LinkedCellGrid<2,_T,Padding>& lcg)
+	static Subscript<2> borderMin(LinkedCellGrid<2,_T,Padding>& lcg)
 	{
-		typename LinkedCellGrid<2,_T,Padding>::plist_type out;
-		for(int i=0;i<(int)Padding;++i)
-			for(int j=lcg.cell_counts_unpadded[1]-1-Padding;j<lcg.cell_counts_unpadded[1];++j)
-				lcg.copyCellContents(out,Subscript<2>(i,j));
-		return out;
+		return Subscript<2>( 0, lcg.cell_counts_unpadded[1]-Padding );
+	}
+
+	static Subscript<2> borderMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( Padding, lcg.cell_counts_unpadded[1] );
+	}
+
+	static Subscript<2> paddingMin(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( -Padding, lcg.cell_counts_unpadded[1] );
+	}
+
+	static Subscript<2> paddingMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( 0, lcg.cell_counts_unpadded[1]+Padding );
 	}
 };
+
+template<class _T, int Padding>
+struct _lcg_impl<2,_T,Padding,Top|Right> {
+	static Subscript<2> borderMin(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0]-Padding, lcg.cell_counts_unpadded[1]-Padding );
+	}
+
+	static Subscript<2> borderMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0], lcg.cell_counts_unpadded[1] );
+	}
+
+	static Subscript<2> paddingMin(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0], lcg.cell_counts_unpadded[1] );
+	}
+
+	static Subscript<2> paddingMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0]+Padding, lcg.cell_counts_unpadded[1]+Padding );
+	}
+};
+
+template<class _T, int Padding>
+struct _lcg_impl<2,_T,Padding,Bottom|Right> {
+	static Subscript<2> borderMin(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0]-Padding, 0 );
+	}
+
+	static Subscript<2> borderMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0], Padding );
+	}
+
+	static Subscript<2> paddingMin(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0], -Padding );
+	}
+
+	static Subscript<2> paddingMax(LinkedCellGrid<2,_T,Padding>& lcg)
+	{
+		return Subscript<2>( lcg.cell_counts_unpadded[0]+Padding, 0 );
+	}
+};
+
 
 ///////////////////////////////////////////////////////////////////////////////
 //                                     3D                                    //

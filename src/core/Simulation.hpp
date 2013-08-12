@@ -12,6 +12,7 @@
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/mpi/communicator.hpp>
+#include <boost/mpi/collectives.hpp>
 #include "LinkedCellGrid.hpp"
 #include "Parameters.h"
 #include "Fluid.h"
@@ -55,6 +56,7 @@ public:
 	const Parameters<Dim>& parameters() const;
 	const plist_type& fluidParticles() const;
 	const plist_type& wallParticles() const;
+	const plist_type& neighbourParticles() const;
 
 private:
 
@@ -90,39 +92,44 @@ Simulation<Dim>::Simulation()
 	comm_rank = comm.rank();
 }
 
+/**
+ * Work out the domain decomposition and initialize the linked cell grids
+ */
 template<size_t Dim>
 void Simulation<Dim>::init()
 {
 	using namespace std;
 
-	// TODO: INIT LINKED CELL GRID AND ENSURE LOCAL DOMAINS ALIGN PROPERLY WITH EDGES
-
 	// get cell sizes in each dimension (can be slightly off 2h to ensure they fit exactly in the domain)
 	qvect<Dim,number> gnum_cells = gdomain.upper / (2.0_number*params.h);
 	for(size_t i=0;i<Dim;++i) gnum_cells[i] = floor(gnum_cells[i]);
 	qvect<Dim,length> cell_sizes = gdomain.upper / gnum_cells;
+	Extent<Dim> global_cell_counts(discard_dims(gnum_cells)); // "cast" to size_t
+
 	if(!comm_rank) cout << "Cell sizes: " << cell_sizes/params.h << " * h" << endl;
 
 	// domain arrangements
 	domain_counts = calc_num_domains<Dim>(comm_size);
 	if(!comm_rank) cout << "Domain decomposition: " << domain_counts << endl;
 
-	Extent<Dim> global_cell_counts(discard_dims(gnum_cells)); // "cast" to size_t
+	// get our position amongst the domain_counts
+	domain_sub = idx_to_sub<Dim>((size_t)comm_rank,domain_counts);
 
-	// calculate the number of cells for each processor in each dimension
+	// calculate the number of cells in the local domain
 	nvect<Dim,size_t> lnum_cells[comm_size];
-	for(size_t p=0;p<comm_size;++p)
-		for(size_t i=0;i<Dim;++i)
-			if(p<floor(global_cell_counts[i]/domain_counts[i]))
-				lnum_cells[p][i] = floor(global_cell_counts[i]/domain_counts[i]);
-			else
-				lnum_cells[p][i] = floor(global_cell_counts[i]/domain_counts[i])+1;
+	for(size_t i=0;i<Dim;++i)
+	{
+		if(domain_sub[i]<(int)(domain_counts[i]-global_cell_counts[i]%domain_counts[i]))
+			lnum_cells[comm_rank][i] = floor(global_cell_counts[i]/domain_counts[i]);
+		else
+			lnum_cells[comm_rank][i] = floor(global_cell_counts[i]/domain_counts[i])+1;
+	}
+
+	// broadcast our count to all other processes
+	boost::mpi::all_gather(comm,lnum_cells[comm_rank],lnum_cells);
 
 	// get the size in each dimension of our domain
 	nvect<Dim,quantity<length>> dom_sizes = qvect<Dim,number>(lnum_cells[comm_rank])*cell_sizes;
-
-	// get our position amongst the domain_counts
-	domain_sub = idx_to_sub<Dim>((size_t)comm_rank,domain_counts);
 
 	// calculate local domain physical position
 	for(size_t i=0;i<Dim;++i)
@@ -138,7 +145,7 @@ void Simulation<Dim>::init()
 	// initialize the linked cell grid.
 	cells.init(cell_sizes,lnum_cells[comm_rank],ldomain.lower);
 
-	cout << "P" << comm_rank <<" : " << ldomain.lower << "->" << ldomain.upper << endl;
+	//cout << "P" << comm_rank <<" : " << ldomain.lower << "->" << ldomain.upper << "\t" << lnum_cells[comm_rank] << "\t" << cells.lower << endl;
 }
 
 template<size_t Dim>
@@ -252,6 +259,19 @@ void Simulation<Dim>::loadConfigXML(std::string fname)
 		get_option("/sph/resolution/h",tmpd);
 		params.h = quantity<length>(tmpd);
 		params.dx = params.h/quantity<number>(hfac);
+	}
+
+	if(comm_rank==0)
+	{
+		char dims[3] = {'x','y','z'};
+		for(size_t d=0;d<Dim;++d)
+		{
+			auto tmp = (gdomain.upper[d]/params.dx) - floor(gdomain.upper[d]/params.dx);
+			if( tmp > 0.01_number )
+			{
+				cout << "### Particle spacing does not match period length along the " << dims[d] << "-axis. ###" << endl;
+			}
+		}
 	}
 
 	double time;
@@ -418,16 +438,14 @@ void Simulation<Dim>::loadWall(std::string fname)
 template<size_t Dim>
 void Simulation<Dim>::assignParticleIds()
 {
+	/*
+	 * Initialize wall particles sequentially accross processors
+	 */
+
 	size_t gid = 0;
 
 	if(comm_rank>0)
 		comm.recv(comm_rank-1,comm_rank,gid);
-
-	for(auto& part : fluid_particles)
-	{
-		part.id = gid;
-		gid++;
-	}
 
 	for(auto& part : wall_particles)
 	{
@@ -437,6 +455,29 @@ void Simulation<Dim>::assignParticleIds()
 
 	if(comm_rank<comm_size-1)
 		comm.send(comm_rank+1,comm_rank+1,gid);
+
+	boost::mpi::broadcast(comm,gid,comm_size-1);
+
+	/*
+	 * Initialize fluid particles based upon positions
+	 */
+
+	if(Dim==2)
+	{
+		size_t nx = discard_dims(gdomain.upper[0]/params.dx);
+
+		for(auto& part : fluid_particles)
+		{
+			size_t i = discard_dims(part.pos[0][0]/params.dx);
+			size_t j = discard_dims(part.pos[0][1]/params.dx);
+			part.id = i+j*nx + gid;
+		}
+	}
+	else
+	{
+		// TODO: implement 3D ids
+		throw runtime_error("TODO!");
+	}
 }
 
 template<size_t Dim>
@@ -451,6 +492,12 @@ const typename Simulation<Dim>::plist_type& Simulation<Dim>::wallParticles() con
 	return wall_particles;
 }
 
+template<size_t Dim>
+const typename Simulation<Dim>::plist_type& Simulation<Dim>::neighbourParticles() const
+{
+	return neighbour_particles;
+}
+
 template<size_t Dim> template<typename Archive>
 void Simulation<Dim>::serialize(Archive& a, const unsigned int version)
 {
@@ -460,6 +507,7 @@ void Simulation<Dim>::serialize(Archive& a, const unsigned int version)
 	a & fluids;
 	a & fluid_particles;
 	a & wall_particles;
+	a & neighbour_particles;
 }
 
 //BOOST_CLASS_VERSION(Simulation<2>,0)
@@ -501,7 +549,7 @@ void Simulation<Dim>::placeParticlesIntoLinkedCellGrid(size_t tstep)
 	cells.clear();
 
 	cells.place(fluid_particles,tstep);
-	cells.place(wall_particles,tstep);
+	cells.place(wall_particles, tstep);
 }
 
 /*

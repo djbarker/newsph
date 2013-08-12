@@ -21,25 +21,58 @@ void Simulation<2>::floodFill(const Region<2>& region, const nvect<2,quantity<po
 	size_t nx = discard_dims((region.upper[0]-region.lower[0])/params.dx);
 	size_t ny = discard_dims((region.upper[1]-region.lower[1])/params.dx);
 
-	for(size_t i=0;i<nx;++i)
-		for(size_t j=0;j<ny;++j)
+	for(size_t i=0;i<=nx;++i)
+		for(size_t j=0;j<=ny;++j)
 		{
 			particle_type part;
 
-			part.fluid = 0;
+			part.fluid = fluid;
 			part.type = FluidP;
-			part.pos[0] = nvect<2,quantity<number>>(i,j)*params.dx + region.lower;
+			part.pos[1] = part.pos[0] = nvect<2,quantity<number>>(i,j)*params.dx + region.lower;
 
 			if(ldomain.inside(part.pos[0]))
 			{
 				fluid_particles.push_back(part);
 			}
 		}
+
+	cout << endl;
 }
 
+/*
+ * Exchanges particles at the border with neighbouring processes and places
+ * the received particles into the linked cell grid.
+ */
 template<>
 void Simulation<2>::exchange()
 {
+
+	/*if(comm_rank==0)
+	{
+		for(int j=-1;j<(int)cells.cellCount()[1]+1;++j)
+		{
+			for(int i=-1;i<(int)cells.cellCount()[0]+1;++i)
+			{
+				bool out = false;
+				auto tmp = Subscript<2>(i,j);
+				if( _lcg_impl<2,particle_type,1,Bottom>::paddingMin(cells) <= tmp && tmp < _lcg_impl<2,particle_type,1,Bottom>::paddingMax(cells)  )
+				{
+					out = true;
+					cout << "#";
+				}
+
+				if(!out)
+				{
+					cout << ".";
+				}
+
+				cout << "\t";
+			}
+			cout << endl;
+		}
+	}
+	exit(0);*/
+
 	/*
 	 * For shifting the periods
 	 */
@@ -60,8 +93,17 @@ void Simulation<2>::exchange()
 	};
 
 	/*
-	 * Clear previously exchanged particles
+	 * Clear previously any exchanged particles
 	 */
+
+	cells.clearPadding<Left>();
+	cells.clearPadding<Right>();
+	cells.clearPadding<Bottom>();
+	cells.clearPadding<Top>();
+	cells.clearPadding<Bottom|Left>();
+	cells.clearPadding<Bottom|Right>();
+	cells.clearPadding<Top|Right>();
+	cells.clearPadding<Top|Left>();
 
 	neighbour_particles.clear();
 
@@ -94,6 +136,10 @@ void Simulation<2>::exchange()
 	sdata[5] = cells.getBorder<Top|Left>();
 	sdata[6] = cells.getBorder<Top|Right>();
 	sdata[7] = cells.getBorder<Bottom|Right>();
+
+	if(comm_rank==4)
+		for(auto l : sdata)
+			cout << l.size() << endl;
 
 	size_t stags[8] = { Left, Right, Top, Bottom, Bottom|Left, Top|Left, Top|Right, Bottom|Right };
 	size_t rtags[8] = { Right, Left, Bottom, Top, Top|Right, Bottom|Right, Bottom|Left, Top|Left }; // The process to our left (for example) is sending data to its right.
@@ -135,10 +181,11 @@ void Simulation<2>::exchange()
 		neighbour_particles.splice(neighbour_particles.end(),list);
 	}
 
+	for(auto& p : neighbour_particles)
+		p.type = GhostP; // DEBUG
+
 	// add to linked cell grid
 	cells.place(neighbour_particles,0);
-
-	cout << "proc " << comm_rank << " here D" << endl;
 }
 
 template<>

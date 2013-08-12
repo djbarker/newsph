@@ -38,7 +38,7 @@ struct ResetVals {
 	void operator() (PType& part)
 	{
 		part.sigma = quantity<IntDim<0,-Dim,0>>(0.0);
-		part.acc = nvect<+Dim,quantity<acceleration>>(0.0); // expands to (0.,0.,...) depending on Dim
+		part.acc = make_vect<Dim,quantity<acceleration>>(0.0); // expands to (0.,0.,...) depending on Dim
 	}
 };
 
