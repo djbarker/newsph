@@ -25,6 +25,27 @@ using namespace dims;
 template<size_t N, class Dims> using qvect = nvect<N,dims::quantity<Dims>>;
 
 /*
+ * Compile time maths functions
+ */
+
+// compile time factorial
+constexpr size_t factorial(size_t n) {
+    return n == 0 ? 1  :  n * factorial(n-1);
+}
+
+// compile time integer power
+constexpr size_t pow_int(size_t exp, size_t pow)
+{
+	return pow == 0 ? 1 : pow_int(exp,pow-1)*exp;
+}
+
+// number of "elements" with dimension < n on the boundary of a hypercube of dimension n
+constexpr size_t hc_elements(size_t n, size_t m=0) {
+	return m==n ? 0 : hc_elements(n,m+1) + pow_int(2,n-m)*factorial(n)/(factorial(m)*factorial(n-m));
+}
+
+
+/*
  * Convenience functions for working with indices/subscripts
  */
 

@@ -9,9 +9,9 @@ namespace sim
 	struct Fluid
 	{
 		bool gravity; // feels gravity?
-		dims::quantity<dims::viscosity> viscosity; // dynamic viscosity
-		dims::quantity<dims::density> density; // fluid density
-		dims::quantity<dims::velocity> speed_of_sound;
+		dims::quantity<dims::viscosity>	viscosity; // dynamic viscosity
+		dims::quantity<dims::density>	density; // fluid density
+		dims::quantity<dims::velocity>	speed_of_sound;
 
 		template<class Archive> void serialize(Archive& ar, const unsigned int version);
 	};

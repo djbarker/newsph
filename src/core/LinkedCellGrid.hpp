@@ -74,7 +74,7 @@ void LinkedCellGrid<Dim,T,Padding>::init(qvect<Dim,length> cell_sizes, Extent<Di
 {
 	this->cell_sizes = cell_sizes;
 	this->cell_counts = cell_counts;
-	this->cell_counts_unpadded = nvect<Dim,int>(cell_counts);
+	this->cell_counts_unpadded = vect_cast<int>(cell_counts);
 	this->lower = lower;
 
 	// total number of cells
@@ -118,7 +118,7 @@ size_t LinkedCellGrid<Dim,T,Padding>::subToIdx(const Subscript<Dim>& sub)
 template<size_t Dim, typename T, size_t Padding>
 Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::posToSub(const nvect<Dim,quantity<position>>& pos)
 {
-	return Subscript<Dim>(utils::discard_dims((pos-lower)/cell_sizes)); // "cast" to int
+	return vect_cast<int>(utils::discard_dims((pos-lower)/cell_sizes)); // "cast" to int
 }
 
 /*

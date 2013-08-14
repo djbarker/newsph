@@ -18,6 +18,7 @@
 #include "Fluid.h"
 #include "Region.hpp"
 #include "../utils/utils.hpp"
+#include "../kernels/ParticleDelta.hpp"
 
 namespace sim
 {
@@ -54,6 +55,7 @@ public:
 	template<typename... Fs> void applyFunctions(Fs&&... fs);
 
 	const Parameters<Dim>& parameters() const;
+	const vector<Fluid>& fluidPhases() const;
 	const plist_type& fluidParticles() const;
 	const plist_type& wallParticles() const;
 	const plist_type& neighbourParticles() const;
@@ -104,7 +106,7 @@ void Simulation<Dim>::init()
 	qvect<Dim,number> gnum_cells = gdomain.upper / (2.0_number*params.h);
 	for(size_t i=0;i<Dim;++i) gnum_cells[i] = floor(gnum_cells[i]);
 	qvect<Dim,length> cell_sizes = gdomain.upper / gnum_cells;
-	Extent<Dim> global_cell_counts(discard_dims(gnum_cells)); // "cast" to size_t
+	Extent<Dim> global_cell_counts = vect_cast<size_t>(utils::discard_dims(gnum_cells)); // "cast" to size_t
 
 	if(!comm_rank) cout << "Cell sizes: " << cell_sizes/params.h << " * h" << endl;
 
@@ -129,7 +131,7 @@ void Simulation<Dim>::init()
 	boost::mpi::all_gather(comm,lnum_cells[comm_rank],lnum_cells);
 
 	// get the size in each dimension of our domain
-	nvect<Dim,quantity<length>> dom_sizes = qvect<Dim,number>(lnum_cells[comm_rank])*cell_sizes;
+	qvect<Dim,length> dom_sizes = vect_cast<number_t<>>(lnum_cells[comm_rank])*cell_sizes;
 
 	// calculate local domain physical position
 	for(size_t i=0;i<Dim;++i)
@@ -216,6 +218,8 @@ void Simulation<Dim>::loadConfigXML(std::string fname)
 			get_option(path+"viscosity/kinematic",tmpd);
 			tmpf.viscosity = quantity<IntDim<0,2,-1>>(tmpd)*tmpf.density; // convert to dynamic viscosity
 		}
+
+		fluids.push_back(tmpf);
 	}
 
 	if(have_option("/physics/gravity"))
@@ -260,6 +264,8 @@ void Simulation<Dim>::loadConfigXML(std::string fname)
 		params.h = quantity<length>(tmpd);
 		params.dx = params.h/quantity<number>(hfac);
 	}
+
+	params.V = pow<Dim>(params.dx);
 
 	if(comm_rank==0)
 	{
@@ -317,7 +323,7 @@ void Simulation<Dim>::loadConfigXML(std::string fname)
 
 		floodFill(fill_region,start_point,(size_t)tmpi);
 
-		if(!comm_rank) cout << "Done" << endl;
+		if(!comm_rank) cout << "Done " << tmps << endl;
 	}
 
 	// finished setting up - assign ids to the particles
@@ -439,7 +445,7 @@ template<size_t Dim>
 void Simulation<Dim>::assignParticleIds()
 {
 	/*
-	 * Initialize wall particles sequentially accross processors
+	 * Initialize wall particles sequentially across processors
 	 */
 
 	size_t gid = 0;
@@ -539,6 +545,12 @@ const Parameters<Dim>& Simulation<Dim>::parameters() const
 	return params;
 }
 
+template<size_t Dim>
+const vector<Fluid>& Simulation<Dim>::fluidPhases() const
+{
+	return fluids;
+}
+
 /*
  * This function puts wall_particles and fluid_particles into the correct sublists based
  * upon their positions at the specified timestep.
@@ -578,12 +590,16 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 		{
 			for(particle_type* part_b : cells.getCell(cells.subToIdx(x_sub+dcell)))
 			{
-				quantity<length>   			    dist_ab = (itr->pos[tstep]-part_b->pos[tstep]).magnitude();
-				quantity<IntDim<0,-(int)Dim,0>>    W_ab = Kernel<2>::Kernel(dist_ab,params.h);
-				quantity<IntDim<0,-1-(int)Dim,0>> dW_ab = Kernel<2>::Grad(dist_ab,params.h);
+				qvect<Dim,length>				   r_ab = (itr->pos[tstep]-part_b->pos[tstep]);
+				quantity<length>   			    dist_ab = r_ab.magnitude();
+				qvect<Dim,number>				unit_ab = r_ab/dist_ab;
+				quantity<IntDim<0,-(int)Dim,0>>    W_ab = Kernel<Dim>::Kernel(dist_ab,params.h);
+				quantity<IntDim<0,-1-(int)Dim,0>> dW_ab = Kernel<Dim>::Grad(dist_ab,params.h);
 
 				// for explanation of this line see: http://stackoverflow.com/questions/18077259/variadic-function-accepting-functors-callable-objects
-				auto dummylist = { ((void)std::forward<Fs>(fs)(*itr,*part_b,W_ab,dW_ab),0)... };
+				auto dummylist = {
+						((void)std::forward<Fs>(fs)(*itr,*part_b,kernels::ParticleDelta<Dim>{dist_ab,unit_ab,W_ab,dW_ab},*this),0)...
+					};
 				(void)dummylist; // stop the compiler warning about unused variable
 			}
 		}

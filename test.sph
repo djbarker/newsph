@@ -25,7 +25,7 @@
     </c0>
     <resolution>
       <dx>
-        <real_value rank="0">0.01</real_value>
+        <real_value rank="0">0.005</real_value>
       </dx>
     </resolution>
     <h_factor>

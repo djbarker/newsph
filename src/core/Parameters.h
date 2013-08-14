@@ -20,6 +20,9 @@ struct Parameters
 	quantity<dims::time> tout;
 	quantity<dims::time> dt;
 
+	// convenience quantities
+	quantity<IntDim<0,Dim,0>> V;
+
 	template<typename Archive>
 	void serialize(Archive& a, const unsigned int version)
 	{
@@ -30,6 +33,7 @@ struct Parameters
 		a & tmax;
 		a & tout;
 		a & dt;
+		a & V;
 	}
 };
 

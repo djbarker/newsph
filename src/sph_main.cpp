@@ -29,31 +29,53 @@ int run_main(int argc, char* argv[])
 
 	// setup mpi
 	boost::mpi::environment env(argc,argv,true);
+	boost::mpi::communicator comm;
 
 	Simulation<DIM> theSim;
 
 	// currently only takes one argument - the config file name
 	theSim.loadConfigXML(string(argv[1]));
 
-	cout << "HERE 0 " << endl;
-
 	size_t file_number = 0;
 	theSim.writeOutput(file_number);
-
-	cout << "HERE 1 " << endl;
+	++file_number;
 
 	double tmax = discard_dims(theSim.parameters().tmax);
 	for(double t=0.;t<tmax; t += discard_dims(theSim.parameters().dt))
 	{
+		if(comm.rank()==0) cout << "t = " << t << endl;
+
 		// set values to zero
 		theSim.applyFunctions(physics::ResetVals<DIM>());
 
+		if(comm.rank()==0) cout << "Rest values." << endl;
+
 		theSim.placeParticlesIntoLinkedCellGrid(0);
+
+		if(comm.rank()==0) cout << "Placed into LCG." << endl;
 
 		theSim.exchange();
 
+		if(comm.rank()==0) cout << "Exchanged." << endl;
+
 		// calculate sigma
 		theSim.doSPHSum<kernels::WendlandQuintic>(0u,physics::SigmaCalc<DIM>());
+
+		if(comm.rank()==0) cout << "Sigma." << endl;
+
+
+
+		if(comm.rank()==0) cout << "Exchange data." << endl;
+
+		// calculate density then pressure
+		theSim.applyFunctions(physics::DensityCalc<DIM>(theSim),physics::TaitEquation<DIM>(theSim));
+
+		if(comm.rank()==0) cout << "Density/Tait." << endl;
+
+		// calculate acceleration
+		theSim.doSPHSum<kernels::WendlandQuintic>(0u,physics::GradPCalc<DIM>(),physics::ViscCalc<DIM,0>());
+
+		if(comm.rank()==0) cout << "GradP/Visc." << endl;
 
 		theSim.writeOutput(file_number);
 		++file_number;
@@ -61,6 +83,7 @@ int run_main(int argc, char* argv[])
 		if(t>0.001) break;
 	}
 
+	if(comm.rank()==0) cout << "Finished." << endl;
 
 	return 0;
 }

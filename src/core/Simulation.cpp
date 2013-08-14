@@ -35,8 +35,6 @@ void Simulation<2>::floodFill(const Region<2>& region, const nvect<2,quantity<po
 				fluid_particles.push_back(part);
 			}
 		}
-
-	cout << endl;
 }
 
 /*
@@ -47,7 +45,7 @@ template<>
 void Simulation<2>::exchange()
 {
 
-	/*if(comm_rank==0)
+	/*if(comm_rank==0)l
 	{
 		for(int j=-1;j<(int)cells.cellCount()[1]+1;++j)
 		{
@@ -137,20 +135,16 @@ void Simulation<2>::exchange()
 	sdata[6] = cells.getBorder<Top|Right>();
 	sdata[7] = cells.getBorder<Bottom|Right>();
 
-	if(comm_rank==4)
-		for(auto l : sdata)
-			cout << l.size() << endl;
-
 	size_t stags[8] = { Left, Right, Top, Bottom, Bottom|Left, Top|Left, Top|Right, Bottom|Right };
 	size_t rtags[8] = { Right, Left, Bottom, Top, Top|Right, Bottom|Right, Bottom|Left, Top|Left }; // The process to our left (for example) is sending data to its right.
 
-	// TODO: this could quite easily be generated to D dimensions as a member function for use in 3D
+	// TODO: this could quite easily be generalized to D dimensions as a member function for use in 3D
 	auto do_swap = [&](size_t i)->void{
 		// get the subscript & rank of the process we are sending to
 		Subscript<2> dest_sub = utils::mod(domain_sub + shifts[i], domain_counts);
 		int dest_rank = sub_to_idx(dest_sub,domain_counts);
 
-		// if we are on a period boundary shift the data before we send it
+		// if we are on a period boundary, shift the data before we send it
 		for(size_t d=0;d<2;++d)
 		{
 			if(dest_sub[d]!=domain_sub[d] && shifts[i][d]==-1 && domain_sub[d]==0)
