@@ -6,3 +6,4 @@ Debug
 Release
 *.goutputstream*
 test_out
+gmon.out

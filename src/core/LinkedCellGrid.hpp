@@ -32,9 +32,6 @@ class LinkedCellGrid
 {
 public:
 
-	// type which is returned when making copies of data
-	typedef std::list<T,boost::fast_pool_allocator<T>> plist_type;
-
 	LinkedCellGrid(){};
 	virtual ~LinkedCellGrid(){};
 
@@ -43,30 +40,28 @@ public:
 	Subscript<Dim> idxToSub(size_t idx);
 	size_t subToIdx(const Subscript<Dim>& sub);
 	Subscript<Dim> posToSub(const nvect<Dim,quantity<position>>&);
-	std::list<T*>& getCell(size_t idx);
+	LCGList<T>& getCell(size_t idx);
 	Extent<Dim> cellCount() const;
 
-	template<template<class U, class A> class Container, class A>
-	void place(Container<T*,A>& list, size_t tstep);
-
-	template<template<class U, class A> class Container, class A>
-	void place(Container<T,A>& list, size_t tstep);
+	template<class BoostIntrusiveList>
+	void place(BoostIntrusiveList& list, size_t tstep);
+	void place(T& particle, size_t tstep);
 
 	void clear();
 
 	// functions which are forwarded
-	template<size_t Loc> plist_type	getBorder();
-	template<size_t Loc> void		clearPadding();
+	template<size_t Loc> void getBorder(NeighbourList<T>& list);
+	template<size_t Loc> void clearPadding();
 
 private:
 	template<size_t _Dim, class _T, int _Padding, size_t Loc> friend struct _lcg_impl;
-	void copyCellContents(plist_type& out, const Subscript<Dim>& cell_sub);
+	void appendCellContents(NeighbourList<T>& out, const Subscript<Dim>& cell_sub);
 
 	qvect<Dim,length> lower;
 	qvect<Dim,length> cell_sizes;
 	Extent<Dim> cell_counts; // including padding
 	nvect<Dim,int> cell_counts_unpadded;
-	std::vector<std::list<T*>> cells;
+	std::vector<LCGList<T>> cells;
 };
 
 template<size_t Dim, typename T, size_t Padding>
@@ -125,7 +120,7 @@ Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::posToSub(const nvect<Dim,quantity<
  * Returns the list of particle pointers which corresponds to the given index.
  */
 template<size_t Dim, typename T, size_t Padding>
-std::list<T*>& LinkedCellGrid<Dim,T,Padding>::getCell(size_t idx)
+LCGList<T>& LinkedCellGrid<Dim,T,Padding>::getCell(size_t idx)
 {
 	return cells[idx];
 }
@@ -139,30 +134,23 @@ Extent<Dim> LinkedCellGrid<Dim,T,Padding>::cellCount() const
 	return Extent<Dim>(cell_counts_unpadded);
 }
 
-// place particle_type
+/*
+ * Put particles into the correct cells
+ */
 template<size_t Dim, typename T, size_t Padding>
-template<template<class U, class A> class Container, class A>
-void LinkedCellGrid<Dim,T,Padding>::place(Container<T,A>& parts, size_t tstep)
+template<class BoostIntrusiveList>
+void LinkedCellGrid<Dim,T,Padding>::place(BoostIntrusiveList& list, size_t tstep)
 {
-	for(T& t : parts)
-	{
-		/*if(subToIdx(posToSub(t.pos[tstep]))<0 || subToIdx(posToSub(t.pos[tstep]))>=cells.size())
-		{
-			cout << lower << ": invalid index " << subToIdx(posToSub(t.pos[tstep])) << " caused by sub " << posToSub(t.pos[tstep]) << " caused by position " << t.pos[tstep] << endl;
-		}*/
-		cells[subToIdx(posToSub(t.pos[tstep]))].push_back(&t);
-	}
+	for(T& particle : list)	place(particle,tstep);
 }
 
-// place particle_type*
+/*
+ * Place an individual particle into the correct cell
+ */
 template<size_t Dim, typename T, size_t Padding>
-template<template<class U, class A> class Container, class A>
-void LinkedCellGrid<Dim,T,Padding>::place(Container<T*,A>& parts, size_t tstep)
+void LinkedCellGrid<Dim,T,Padding>::place(T& part, size_t tstep)
 {
-	for(T* ptr : parts)
-	{
-		cells[subToIdx(posToSub(ptr->pos[tstep]))].push_back(ptr);
-	}
+	cells[subToIdx(posToSub(part.pos[tstep]))].push_back(part);
 }
 
 /*
@@ -170,15 +158,12 @@ void LinkedCellGrid<Dim,T,Padding>::place(Container<T*,A>& parts, size_t tstep)
  * given as the first paramter. Note that this copies the data.
  */
 template<size_t Dim, typename T, size_t Padding>
-void LinkedCellGrid<Dim,T,Padding>::copyCellContents(plist_type& out, const Subscript<Dim>& sub)
+void LinkedCellGrid<Dim,T,Padding>::appendCellContents(NeighbourList<T>& out, const Subscript<Dim>& sub)
 {
 	size_t idx = subToIdx(sub);
 
-	// copy data from T* pointers into plist_type object
-	for(T* pT : cells[idx])
-	{
-		out.push_back(*pT);
-	}
+	for(T part : cells[idx])
+		out.push_back(part);
 }
 
 /*
@@ -190,8 +175,6 @@ void LinkedCellGrid<Dim,T,Padding>::clear()
 	for(auto& cell : cells)
 		cell.clear();
 }
-
-
 
 /*
  * Implementation Note:
@@ -209,31 +192,30 @@ void LinkedCellGrid<Dim,T,Padding>::clear()
  */
 
 /*
- * Returns a copy of the data that is in the specified border region of the
- * linked cell grid. Returns a copy so we can use it as an boost::mpi buffer.
+ * Adds the data in the specified border region to the given NeighbourList.
+ * Note this doesn't copy the data so the resulting NeighoourList refers to the
+ * actual fluid particles.
  */
-template<size_t Dim, class T, size_t Padding> template<size_t Loc>
-typename LinkedCellGrid<Dim,T,Padding>::plist_type LinkedCellGrid<Dim,T,Padding>::getBorder()
+template<size_t Dim, class T, size_t Padding>
+template<size_t Loc>
+void LinkedCellGrid<Dim,T,Padding>::getBorder(NeighbourList<T>& list)
 {
-	plist_type out;
-
 	// get limits of the border region cell subscripts
 	Subscript<Dim> bmin = _lcg_impl<Dim,T,Padding,Loc>::borderMin(*this);
 	Subscript<Dim> bmax = _lcg_impl<Dim,T,Padding,Loc>::borderMax(*this);
 
 	// copy the cell contents
 	utils::multi_for(bmin,bmax,[&](const Subscript<Dim>& loop_pos)->void{
-		copyCellContents(out,loop_pos);
+		appendCellContents(list,loop_pos);
 	});
-
-	return out;
 }
 
 /*
  * Clears the padding at the specified location. Note that this doesn't delete
  * the particles it just removes them from the linked cell grid.
  */
-template<size_t Dim, class T, size_t Padding> template<size_t Loc>
+template<size_t Dim, class T, size_t Padding>
+template<size_t Loc>
 void LinkedCellGrid<Dim,T,Padding>::clearPadding()
 {
 	// get limits of the border region cell subscripts

@@ -17,6 +17,12 @@ using namespace std;
 using namespace sim;
 using namespace dims;
 
+/*
+ * General TODOs which don't fit anywhere specific in the code
+ */
+// TODO: use extern templates to speed compilation
+// TODO: change linked cell grid to boost::multi_array
+
 int run_main(int argc, char* argv[])
 {
 	if(argc<2)
@@ -30,6 +36,10 @@ int run_main(int argc, char* argv[])
 	// setup mpi
 	boost::mpi::environment env(argc,argv,true);
 	boost::mpi::communicator comm;
+
+	/*
+	 * TEST
+	 */
 
 	Simulation<DIM> theSim;
 
@@ -54,7 +64,7 @@ int run_main(int argc, char* argv[])
 
 		if(comm.rank()==0) cout << "Placed into LCG." << endl;
 
-		theSim.exchange();
+		theSim.exchangeFull();
 
 		if(comm.rank()==0) cout << "Exchanged." << endl;
 
@@ -62,8 +72,6 @@ int run_main(int argc, char* argv[])
 		theSim.doSPHSum<kernels::WendlandQuintic>(0u,physics::SigmaCalc<DIM>());
 
 		if(comm.rank()==0) cout << "Sigma." << endl;
-
-
 
 		if(comm.rank()==0) cout << "Exchange data." << endl;
 

@@ -13,6 +13,7 @@
 #include <boost/archive/text_oarchive.hpp>
 #include <boost/mpi/communicator.hpp>
 #include <boost/mpi/collectives.hpp>
+#include "ListSerializer.hpp"
 #include "LinkedCellGrid.hpp"
 #include "Parameters.h"
 #include "Fluid.h"
@@ -49,7 +50,8 @@ public:
 	void assignParticleIds();
 
 	// Simulate
-	void exchange();
+	void exchangeFull();
+	void exchangeData();
 	void placeParticlesIntoLinkedCellGrid(size_t tstep);
 	template<template<int> class K, typename... Fs> void doSPHSum(size_t tstep, Fs&&... fs);
 	template<typename... Fs> void applyFunctions(Fs&&... fs);
@@ -58,7 +60,6 @@ public:
 	const vector<Fluid>& fluidPhases() const;
 	const plist_type& fluidParticles() const;
 	const plist_type& wallParticles() const;
-	const plist_type& neighbourParticles() const;
 
 private:
 
@@ -78,11 +79,19 @@ private:
 	std::vector<Fluid>	fluids; // fluid parameters
 
 	// lists for particles
-	plist_type fluid_particles;
-	plist_type wall_particles;
-	plist_type neighbour_particles; // particles received from other processes
+	plist_type particle_store;
 
-	// TODO: perhaps make LCG hold iterators to the plist_type rather than pointers.
+	MainList<particle_type>		fluid_particles;
+	MainList<particle_type>		wall_particles;
+	NeighbourList<particle_type>	recv_particles[hc_elements(Dim)];
+	NeighbourList<particle_type>	send_particles[hc_elements(Dim)];
+
+	// for serializing the boost::intrusive::lists
+	template<template<class T_> class ListT = NeighbourList>
+	using ListSerializer_t = ListSerializer<ListT,std::list,particle_type,boost::fast_pool_allocator<particle_type>> ;
+	ListSerializer_t<> send_serializer[hc_elements(Dim)];
+	ListSerializer_t<> recv_serializer[hc_elements(Dim)];
+
 	LinkedCellGrid<Dim,particle_type> cells;
 };
 
@@ -148,6 +157,13 @@ void Simulation<Dim>::init()
 	cells.init(cell_sizes,lnum_cells[comm_rank],ldomain.lower);
 
 	//cout << "P" << comm_rank <<" : " << ldomain.lower << "->" << ldomain.upper << "\t" << lnum_cells[comm_rank] << "\t" << cells.lower << endl;
+
+	// set up serializers for MPI communication
+	for(size_t i=0;i<hc_elements(Dim);++i)
+	{
+		send_serializer[i] = ListSerializer_t<>(particle_store,send_particles[i]);
+		recv_serializer[i] = ListSerializer_t<>(particle_store,recv_particles[i]);
+	}
 }
 
 template<size_t Dim>
@@ -498,12 +514,6 @@ const typename Simulation<Dim>::plist_type& Simulation<Dim>::wallParticles() con
 	return wall_particles;
 }
 
-template<size_t Dim>
-const typename Simulation<Dim>::plist_type& Simulation<Dim>::neighbourParticles() const
-{
-	return neighbour_particles;
-}
-
 template<size_t Dim> template<typename Archive>
 void Simulation<Dim>::serialize(Archive& a, const unsigned int version)
 {
@@ -511,9 +521,10 @@ void Simulation<Dim>::serialize(Archive& a, const unsigned int version)
 	a & gdomain;
 	a & ldomain;
 	a & fluids;
-	a & fluid_particles;
-	a & wall_particles;
-	a & neighbour_particles;
+	ListSerializer_t<MainList> f_serializer(particle_store,fluid_particles);
+	ListSerializer_t<MainList> w_serializer(particle_store,wall_particles);
+	a & f_serializer;
+	a & w_serializer;
 }
 
 //BOOST_CLASS_VERSION(Simulation<2>,0)
@@ -580,7 +591,7 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 
 	auto neighbour_cells = getStencil();
 
-	typename plist_type::iterator itr = fluid_particles.begin();
+	auto itr = fluid_particles.begin();
 	while(true)
 	{
 		Subscript<Dim> x_sub = cells.posToSub(itr->pos[tstep]);
@@ -588,9 +599,9 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 		// iterate over nearby particles
 		for(Subscript<Dim> dcell : neighbour_cells)
 		{
-			for(particle_type* part_b : cells.getCell(cells.subToIdx(x_sub+dcell)))
+			for(particle_type& part_b : cells.getCell(cells.subToIdx(x_sub+dcell)))
 			{
-				qvect<Dim,length>				   r_ab = (itr->pos[tstep]-part_b->pos[tstep]);
+				qvect<Dim,length>				   r_ab = (itr->pos[tstep]-part_b.pos[tstep]);
 				quantity<length>   			    dist_ab = r_ab.magnitude();
 				qvect<Dim,number>				unit_ab = r_ab/dist_ab;
 				quantity<IntDim<0,-(int)Dim,0>>    W_ab = Kernel<Dim>::Kernel(dist_ab,params.h);
@@ -598,7 +609,7 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 
 				// for explanation of this line see: http://stackoverflow.com/questions/18077259/variadic-function-accepting-functors-callable-objects
 				auto dummylist = {
-						((void)std::forward<Fs>(fs)(*itr,*part_b,kernels::ParticleDelta<Dim>{dist_ab,unit_ab,W_ab,dW_ab},*this),0)...
+						((void)std::forward<Fs>(fs)(*itr,part_b,kernels::ParticleDelta<Dim>{dist_ab,unit_ab,W_ab,dW_ab},*this),0)...
 					};
 				(void)dummylist; // stop the compiler warning about unused variable
 			}
@@ -630,7 +641,7 @@ void Simulation<Dim>::applyFunctions(Fs&&... fs)
 {
 	static_assert(sizeof...(Fs)>0,"No operations passed to applyFunctions()!");
 
-	typename std::list<particle_type>::iterator itr = fluid_particles.begin();
+	auto itr = fluid_particles.begin();
 	while(true)
 	{
 		// for explanation of this line see: http://stackoverflow.com/questions/18077259/variadic-function-accepting-functors-callable-objects

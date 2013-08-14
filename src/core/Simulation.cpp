@@ -32,7 +32,8 @@ void Simulation<2>::floodFill(const Region<2>& region, const nvect<2,quantity<po
 
 			if(ldomain.inside(part.pos[0]))
 			{
-				fluid_particles.push_back(part);
+				particle_store.push_back(part);
+				fluid_particles.push_back(particle_store.back());
 			}
 		}
 }
@@ -42,7 +43,7 @@ void Simulation<2>::floodFill(const Region<2>& region, const nvect<2,quantity<po
  * the received particles into the linked cell grid.
  */
 template<>
-void Simulation<2>::exchange()
+void Simulation<2>::exchangeFull()
 {
 
 	/*if(comm_rank==0)l
@@ -74,7 +75,7 @@ void Simulation<2>::exchange()
 	/*
 	 * For shifting the periods
 	 */
-	auto shift_period_up = [&](plist_type& l, size_t Dim)->void{
+	auto shift_period_up = [&](NeighbourList<particle_type>& l, size_t Dim)->void{
 		for(auto& part : l)
 		{
 			part.pos[0][Dim] += gdomain.upper[Dim];
@@ -82,7 +83,7 @@ void Simulation<2>::exchange()
 		}
 	};
 
-	auto shift_period_down = [&](plist_type& l, size_t Dim)->void{
+	auto shift_period_down = [&](NeighbourList<particle_type>& l, size_t Dim)->void{
 		for(auto& part : l)
 		{
 			part.pos[0][Dim] -= gdomain.upper[Dim];
@@ -103,17 +104,18 @@ void Simulation<2>::exchange()
 	cells.clearPadding<Top|Right>();
 	cells.clearPadding<Top|Left>();
 
-	neighbour_particles.clear();
+	for(size_t i=0;i<hc_elements(2);++i)
+	{
+		recv_particles[i].clear();
+		send_particles[i].clear();
+	}
 
 	/*
 	 * Send & receive the data.
 	 */
 
-	// 8 sends and 8 receives
-	mpi::request sreqs[8];
-	mpi::request rreqs[8];
-	plist_type sdata[8];
-	plist_type rdata[8];
+	mpi::request sreqs[hc_elements(2)];
+	mpi::request rreqs[hc_elements(2)];
 
 	Subscript<2> shifts[8] = { {-1, 0}, // left
 							   { 1, 0}, // right
@@ -125,15 +127,17 @@ void Simulation<2>::exchange()
 							   { 1,-1}, // bottom-right
 							 };
 
+	Subscript<2> destinations[hc_elements(2)];
+
 	// get the data from each part to send
-	sdata[0] = cells.getBorder<Left>();
-	sdata[1] = cells.getBorder<Right>();
-	sdata[2] = cells.getBorder<Top>();
-	sdata[3] = cells.getBorder<Bottom>();
-	sdata[4] = cells.getBorder<Bottom|Left>();
-	sdata[5] = cells.getBorder<Top|Left>();
-	sdata[6] = cells.getBorder<Top|Right>();
-	sdata[7] = cells.getBorder<Bottom|Right>();
+	cells.getBorder<Left>			(send_particles[0]);
+	cells.getBorder<Right>			(send_particles[1]);
+	cells.getBorder<Top>			(send_particles[2]);
+	cells.getBorder<Bottom>			(send_particles[3]);
+	cells.getBorder<Bottom|Left>	(send_particles[4]);
+	cells.getBorder<Top|Left>		(send_particles[5]);
+	cells.getBorder<Top|Right>		(send_particles[6]);
+	cells.getBorder<Bottom|Right>	(send_particles[7]);
 
 	size_t stags[8] = { Left, Right, Top, Bottom, Bottom|Left, Top|Left, Top|Right, Bottom|Right };
 	size_t rtags[8] = { Right, Left, Bottom, Top, Top|Right, Bottom|Right, Bottom|Left, Top|Left }; // The process to our left (for example) is sending data to its right.
@@ -144,19 +148,11 @@ void Simulation<2>::exchange()
 		Subscript<2> dest_sub = utils::mod(domain_sub + shifts[i], domain_counts);
 		int dest_rank = sub_to_idx(dest_sub,domain_counts);
 
-		// if we are on a period boundary, shift the data before we send it
-		for(size_t d=0;d<2;++d)
-		{
-			if(dest_sub[d]!=domain_sub[d] && shifts[i][d]==-1 && domain_sub[d]==0)
-				shift_period_up(sdata[i],d);
-
-			if(dest_sub[d]!=domain_sub[d] && shifts[i][d]==+1 && domain_sub[d]==(int)domain_counts[d]-1)
-				shift_period_down(sdata[i],d);
-		}
+		destinations[i] = dest_sub;
 
 		// send and receive
-		sreqs[i] = comm.isend(dest_rank,stags[i],sdata[i]);
-		rreqs[i] = comm.irecv(dest_rank,rtags[i],rdata[i]);
+		sreqs[i] = comm.isend(dest_rank,stags[i],send_serializer[i]);
+		rreqs[i] = comm.irecv(dest_rank,rtags[i],recv_serializer[i]);
 	};
 
 	for(size_t i=0;i<8;++i)	do_swap(i);
@@ -169,17 +165,28 @@ void Simulation<2>::exchange()
 	 * Handle received data
 	 */
 
-	// move the received data into neighbour_particles
-	for(plist_type& list : rdata)
+	for(size_t i=0;i<8;++i)
 	{
-		neighbour_particles.splice(neighbour_particles.end(),list);
+		// if we are on a period boundary, shift the data we received accross the period
+		for(size_t d=0;d<2;++d)
+		{
+			if(destinations[i][d]!=domain_sub[d] && shifts[i][d]==-1 && domain_sub[d]==0)
+				shift_period_up(recv_particles[i],d);
+
+			if(destinations[i][d]!=domain_sub[d] && shifts[i][d]==+1 && domain_sub[d]==(int)domain_counts[d]-1)
+				shift_period_down(recv_particles[i],d);
+		}
 	}
 
-	for(auto& p : neighbour_particles)
-		p.type = GhostP; // DEBUG
-
 	// add to linked cell grid
-	cells.place(neighbour_particles,0);
+	for(auto& l : recv_particles)
+	{
+		cells.place(l,0);
+
+		// FOR DEBUG
+		for(auto& p : l)
+			p.type = GhostP;
+	}
 }
 
 template<>
