@@ -1,6 +1,7 @@
 #include "Simulation.hpp"
 
 #include <boost/mpi/nonblocking.hpp>
+#include <boost/mpi/skeleton_and_content.hpp>
 #include <boost/serialization/list.hpp>
 #include <boost/serialization/utility.hpp>
 
@@ -39,6 +40,19 @@ void Simulation<2>::floodFill(const Region<2>& region, const nvect<2,quantity<po
 		}
 }
 
+template<> Subscript<2> Simulation<2>::shifts[8] = { {-1, 0}, // left
+		   { 1, 0}, // right
+		   { 0, 1}, // top
+		   { 0,-1}, // bottom
+		   {-1,-1}, // bottom-left
+		   {-1, 1}, // top-left
+		   { 1, 1}, // top-right
+		   { 1,-1}, // bottom-right
+		 };
+
+template<> size_t Simulation<2>::send_tags[8] = { Left, Right, Top, Bottom, Bottom|Left, Top|Left, Top|Right, Bottom|Right };
+template<> size_t Simulation<2>::recv_tags[8] = { Right, Left, Bottom, Top, Top|Right, Bottom|Right, Bottom|Left, Top|Left }; // The process to our left (for example) is sending data to its right.
+
 /*
  * Exchanges particles at the border with neighbouring processes and places
  * the received particles into the linked cell grid.
@@ -46,52 +60,6 @@ void Simulation<2>::floodFill(const Region<2>& region, const nvect<2,quantity<po
 template<>
 void Simulation<2>::exchangeFull()
 {
-
-	/*if(comm_rank==0)l
-	{
-		for(int j=-1;j<(int)cells.cellCount()[1]+1;++j)
-		{
-			for(int i=-1;i<(int)cells.cellCount()[0]+1;++i)
-			{
-				bool out = false;
-				auto tmp = Subscript<2>(i,j);
-				if( _lcg_impl<2,particle_type,1,Bottom>::paddingMin(cells) <= tmp && tmp < _lcg_impl<2,particle_type,1,Bottom>::paddingMax(cells)  )
-				{
-					out = true;
-					cout << "#";
-				}
-
-				if(!out)
-				{
-					cout << ".";
-				}
-
-				cout << "\t";
-			}
-			cout << endl;
-		}
-	}
-	exit(0);*/
-
-	/*
-	 * For shifting the periods
-	 */
-	auto shift_period_up = [&](fast_list<pair<particle_type,particle_type*>>& l, size_t Dim)->void{
-		for(auto& part : l)
-		{
-			part.first.pos[0][Dim] += gdomain.upper[Dim];
-			part.first.pos[1][Dim] += gdomain.upper[Dim];
-		}
-	};
-
-	auto shift_period_down = [&](fast_list<pair<particle_type,particle_type*>>& l, size_t Dim)->void{
-		for(auto& part : l)
-		{
-			part.first.pos[0][Dim] -= gdomain.upper[Dim];
-			part.first.pos[1][Dim] -= gdomain.upper[Dim];
-		}
-	};
-
 	/*
 	 * Clear previously any exchanged particles
 	 */
@@ -117,18 +85,6 @@ void Simulation<2>::exchangeFull()
 
 	mpi::request reqs[hc_elements(2)*2]; // send and receive
 
-	Subscript<2> shifts[8] = { {-1, 0}, // left
-							   { 1, 0}, // right
-							   { 0, 1}, // top
-							   { 0,-1}, // bottom
-							   {-1,-1}, // bottom-left
-							   {-1, 1}, // top-left
-							   { 1, 1}, // top-right
-							   { 1,-1}, // bottom-right
-							 };
-
-	Subscript<2> destinations[hc_elements(2)];
-
 	// get the data from each part to send
 	send_particles[0] = cells.getBorder<Left>();
 	send_particles[1] = cells.getBorder<Right>();
@@ -139,21 +95,11 @@ void Simulation<2>::exchangeFull()
 	send_particles[6] = cells.getBorder<Top|Right>();
 	send_particles[7] = cells.getBorder<Bottom|Right>();
 
-	size_t stags[8] = { Left, Right, Top, Bottom, Bottom|Left, Top|Left, Top|Right, Bottom|Right };
-	size_t rtags[8] = { Right, Left, Bottom, Top, Top|Right, Bottom|Right, Bottom|Left, Top|Left }; // The process to our left (for example) is sending data to its right.
-
-	// TODO: this could quite easily be generalized to D dimensions as a member function for use in 3D
 	for(size_t i=0;i<hc_elements(2);++i)
 	{
-		// get the subscript & rank of the process we are sending to
-		Subscript<2> dest_sub = utils::mod(domain_sub + shifts[i], domain_counts);
-		int dest_rank = sub_to_idx(dest_sub,domain_counts);
-
-		destinations[i] = dest_sub;
-
 		// send and receive
-		reqs[i] = comm.isend(dest_rank,stags[i],send_particles[i]);
-		reqs[i+hc_elements(2)] = comm.irecv(dest_rank,rtags[i],recv_particles[i]);
+		reqs[i] 				= comm.isend(dest_ranks[i],send_tags[i],send_particles[i]);
+		reqs[i+hc_elements(2)]	= comm.irecv(dest_ranks[i],recv_tags[i],recv_particles[i]);
 	};
 
 	// wait for exchanges to finish
@@ -169,12 +115,20 @@ void Simulation<2>::exchangeFull()
 		for(size_t d=0;d<2;++d)
 		{
 			// received from +Period
-			if(destinations[i][d]!=domain_sub[d] && shifts[i][d]==-1 && domain_sub[d]==0)
-				shift_period_down(recv_particles[i],d);
+			if(dest_periods[i][d]==PeriodDirec::Positive)
+				for(auto& part : recv_particles[i])
+				{
+					part.first.pos[0][d] -= gdomain.upper[d];
+					part.first.pos[1][d] -= gdomain.upper[d];
+				}
 
 			// received from zero
-			if(destinations[i][d]!=domain_sub[d] && shifts[i][d]==+1 && domain_sub[d]==(int)domain_counts[d]-1)
-				shift_period_up(recv_particles[i],d);
+			if(dest_periods[i][d]==PeriodDirec::Negative)
+				for(auto& part : recv_particles[i])
+				{
+					part.first.pos[0][d] += gdomain.upper[d];
+					part.first.pos[1][d] += gdomain.upper[d];
+				}
 		}
 	}
 
@@ -202,16 +156,6 @@ void Simulation<2>::exchangeData()
 	 * exhange them.
 	 */
 
-	Subscript<2> shifts[8] = { {-1, 0}, // left
-							   { 1, 0}, // right
-							   { 0, 1}, // top
-							   { 0,-1}, // bottom
-							   {-1,-1}, // bottom-left
-							   {-1, 1}, // top-left
-							   { 1, 1}, // top-right
-							   { 1,-1}, // bottom-right
-							 };
-
 	mpi::content c[hc_elements(2)];
 	for(size_t i=0;i<hc_elements(2);++i)
 	{
@@ -220,13 +164,7 @@ void Simulation<2>::exchangeData()
 				ppair.first = *ppair.second;
 
 		c[i] = mpi::get_content(send_particles[i]);
-
-
 	}
-
-
-
-	= mpi::get_content()
 }
 
 template<>

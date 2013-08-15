@@ -27,6 +27,13 @@ using namespace std;
 using namespace dims;
 using namespace utils;
 
+enum PeriodDirec
+{
+	Positive, // exchanging to the right
+	Negative, // exchanging to the left
+	NoCross   // exchange does not cross a period
+};
+
 template<size_t Dim>
 class Simulation
 {
@@ -94,9 +101,19 @@ private:
 	MainList<particle_type>	fluid_particles;
 	MainList<particle_type>	wall_particles;
 
-	// stuff for sending across mpi
+	// bufferes for sending across mpi
 	fast_list<std::pair<particle_type,particle_type*> > recv_particles[hc_elements(Dim)];
 	fast_list<std::pair<particle_type,particle_type*> > send_particles[hc_elements(Dim)];
+
+	// values needed during exchange - stored here to save recreating each time
+	Subscript<Dim>	dest_subs[hc_elements(Dim)];
+	size_t			dest_ranks[hc_elements(Dim)];
+	PeriodDirec		dest_periods[hc_elements(Dim)][Dim];
+
+	static Subscript<Dim>	shifts[hc_elements(Dim)];
+	static size_t			send_tags[hc_elements(Dim)];
+	static size_t			recv_tags[hc_elements(Dim)];
+
 
 	LinkedCellGrid<Dim,particle_type> cells;
 };
@@ -162,7 +179,28 @@ void Simulation<Dim>::init()
 	// initialize the linked cell grid.
 	cells.init(cell_sizes,lnum_cells[comm_rank],ldomain.lower);
 
-	//cout << "P" << comm_rank <<" : " << ldomain.lower << "->" << ldomain.upper << "\t" << lnum_cells[comm_rank] << "\t" << cells.lower << endl;
+	// initialize denstinations for mpi
+	for(size_t i=0;i<hc_elements(Dim);++i)
+	{
+		// calculate the subscript & rank of the process we are sending to
+		dest_subs[i] = utils::mod(domain_sub + shifts[i], domain_counts);
+		dest_ranks[i] = sub_to_idx(dest_subs[i],domain_counts);
+
+		for(size_t d=0;d<Dim;++d)
+		{
+			// received from +Period
+			if(dest_subs[i][d]!=domain_sub[d] && shifts[i][d]==-1 && domain_sub[d]==0)
+				dest_periods[i][d] = PeriodDirec::Positive;
+
+			// received from zero
+			else if(dest_subs[i][d]!=domain_sub[d] && shifts[i][d]==+1 && domain_sub[d]==(int)domain_counts[d]-1)
+				dest_periods[i][d] = PeriodDirec::Negative;
+
+			// not exchanging across a period
+			else
+				dest_periods[i][d] = PeriodDirec::NoCross;
+		}
+	}
 }
 
 template<size_t Dim>

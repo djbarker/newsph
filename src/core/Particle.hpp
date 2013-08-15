@@ -100,12 +100,12 @@ Particle<Dim,TStep,NCol>& Particle<Dim,TStep,NCol>::operator=(const Particle<Dim
 {
 	if(&part!=this)
 	{
-		fluid(part.fluid);
-		wall(part.wall);
-		id(part.id);
-		type(part.type);
-		sigma(part.sigma);
-		pressure(part.pressure);
+		fluid = part.fluid;
+		wall = part.wall;
+		id = part.id;
+		type = part.type;
+		sigma = part.sigma;
+		pressure = part.pressure;
 
 		for(size_t t=0;t<TStep;++t)
 		{
