@@ -69,6 +69,8 @@ int run_main(int argc, char* argv[])
 
 		if(comm.rank()==0) cout << "Sigma." << endl;
 
+		theSim.exchangeData();
+
 		if(comm.rank()==0) cout << "Exchange data." << endl;
 
 		// calculate density then pressure

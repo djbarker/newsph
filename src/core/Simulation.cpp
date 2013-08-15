@@ -156,14 +156,18 @@ void Simulation<2>::exchangeData()
 	 * exhange them.
 	 */
 
-	mpi::content c[hc_elements(2)];
+	mpi::content sc[hc_elements(2)];
+	mpi::content rc[hc_elements(2)];
 	for(size_t i=0;i<hc_elements(2);++i)
 	{
 		for(auto& list : send_particles)
 			for(auto& ppair : list)
 				ppair.first = *ppair.second;
 
-		c[i] = mpi::get_content(send_particles[i]);
+		sc[i] = mpi::get_content(send_particles[i]);
+		rc[i] = mpi::get_content(recv_particles[i]);
+		comm.isend(dest_ranks[i],send_tags[i],sc[i]);
+		comm.irecv(dest_ranks[i],recv_tags[i],rc[i]);
 	}
 }
 
