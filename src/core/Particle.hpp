@@ -58,13 +58,11 @@ public:
 	// hooks for multiply linked lists
 	boost::intrusive::list_member_hook<>
 		main_hook,			// for iterating over fluid/wall particles
-		lcg_hook,			// for iterating over linked-cell-grid cells
-		neighbour_hook;     // for iterating over particles either sent or received from neighbouring processes
+		lcg_hook;			// for iterating over linked-cell-grid cells
 };
 
 template<class T> using MainList      = boost::intrusive::list<T, boost::intrusive::member_hook<T, boost::intrusive::list_member_hook<>, &T::main_hook> >;
 template<class T> using LCGList       = boost::intrusive::list<T, boost::intrusive::member_hook<T, boost::intrusive::list_member_hook<>, &T::lcg_hook> >;
-template<class T> using NeighbourList = boost::intrusive::list<T, boost::intrusive::member_hook<T, boost::intrusive::list_member_hook<>, &T::neighbour_hook> >;
 
 template<size_t Dim, size_t TStep, size_t NCol>
 Particle<Dim,TStep,NCol>::Particle()

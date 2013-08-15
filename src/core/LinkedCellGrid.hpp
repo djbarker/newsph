@@ -4,7 +4,6 @@
 #include <vector>
 #include <list>
 #include <stdexcept>
-#include <boost/pool/pool_alloc.hpp>
 #include "Particle.hpp"
 #include "Region.hpp"
 #include "../utils/utils.hpp"
@@ -50,17 +49,17 @@ public:
 	void clear();
 
 	// functions which are forwarded
-	template<size_t Loc> void getBorder(NeighbourList<T>& list);
+	template<size_t Loc> fast_list<std::pair<T,T*>> getBorder();
 	template<size_t Loc> void clearPadding();
 
 private:
 	template<size_t _Dim, class _T, int _Padding, size_t Loc> friend struct _lcg_impl;
-	void appendCellContents(NeighbourList<T>& out, const Subscript<Dim>& cell_sub);
+	void appendCellContents(fast_list<std::pair<T,T*>>& out, const Subscript<Dim>& cell_sub);
 
-	qvect<Dim,length> lower;
-	qvect<Dim,length> cell_sizes;
-	Extent<Dim> cell_counts; // including padding
-	nvect<Dim,int> cell_counts_unpadded;
+	qvect<Dim,length>		lower;		 // lower-left corner of the grid
+	qvect<Dim,length>		cell_sizes;	 // physical sizes of the cells
+	Extent<Dim>				cell_counts; // including padding
+	nvect<Dim,int>			cell_counts_unpadded;
 	std::vector<LCGList<T>> cells;
 };
 
@@ -158,12 +157,11 @@ void LinkedCellGrid<Dim,T,Padding>::place(T& part, size_t tstep)
  * given as the first paramter. Note that this copies the data.
  */
 template<size_t Dim, typename T, size_t Padding>
-void LinkedCellGrid<Dim,T,Padding>::appendCellContents(NeighbourList<T>& out, const Subscript<Dim>& sub)
+void LinkedCellGrid<Dim,T,Padding>::appendCellContents(fast_list<std::pair<T,T*>>& out, const Subscript<Dim>& sub)
 {
-	size_t idx = subToIdx(sub);
-
-	for(T part : cells[idx])
-		out.push_back(part);
+	// copy the cell contents and a pointer to where the copy came from
+	for(T& part : cells[subToIdx(sub)])
+		out.push_back(make_pair(part,&part));
 }
 
 /*
@@ -198,16 +196,20 @@ void LinkedCellGrid<Dim,T,Padding>::clear()
  */
 template<size_t Dim, class T, size_t Padding>
 template<size_t Loc>
-void LinkedCellGrid<Dim,T,Padding>::getBorder(NeighbourList<T>& list)
+fast_list<std::pair<T,T*>> LinkedCellGrid<Dim,T,Padding>::getBorder()
 {
+	fast_list<std::pair<T,T*>> list;
+
 	// get limits of the border region cell subscripts
 	Subscript<Dim> bmin = _lcg_impl<Dim,T,Padding,Loc>::borderMin(*this);
 	Subscript<Dim> bmax = _lcg_impl<Dim,T,Padding,Loc>::borderMax(*this);
 
-	// copy the cell contents
+	// link the cell contents into neighbour list
 	utils::multi_for(bmin,bmax,[&](const Subscript<Dim>& loop_pos)->void{
 		appendCellContents(list,loop_pos);
 	});
+
+	return list;
 }
 
 /*

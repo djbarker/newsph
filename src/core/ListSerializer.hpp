@@ -6,16 +6,15 @@
 
 /*
  * A class which allows us to serialize boost::intrusive::list objects
- * by wrapping them in an object which knows about the memory allocation
- * patterns.
+ * by wrapping them in an object which uses a std container as a store.
  */
-template<template<class T_> class List, template<class T_, class Alloc_> class Store, class T, class Alloc=std::allocator<T> >
+template<class List, class Store, class T>
 class ListSerializer
 {
 public:
 	ListSerializer() = default;
 
-	ListSerializer(Store<T,Alloc>& s, List<T>& l)
+	ListSerializer(Store& s, List& l)
 	:store(&s)
 	,list(&l)
 	{
@@ -46,8 +45,8 @@ public:
 	BOOST_SERIALIZATION_SPLIT_MEMBER()
 
 private:
-	Store<T,Alloc>* store;
-	List<T>*		list;
+	Store*	store;
+	List*	list;
 };
 
 

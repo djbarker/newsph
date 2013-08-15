@@ -5,12 +5,11 @@
 #include <stdexcept>
 #include <vector>
 #include <string>
+#include <utility>
 #include <boost/serialization/vector.hpp>
 #include <boost/serialization/list.hpp>
 #include <boost/serialization/split_free.hpp>
-//#include <boost/serialization/string.hpp>
-//#include <boost/serialization/version.hpp>
-//#include <boost/serialization/utility.hpp>
+#include <boost/pool/pool_alloc.hpp>
 #include <vect.hpp>
 #include <dims.hpp>
 #include "../core/Particle.hpp"
@@ -22,7 +21,15 @@ namespace utils
 
 using namespace dims;
 
+/*
+ * Useful typedefs
+ */
+
+// vector of quantities
 template<size_t N, class Dims> using qvect = nvect<N,dims::quantity<Dims>>;
+
+// list with store based allocator for speed
+template<class T> using fast_list = std::list<T,boost::fast_pool_allocator<T>>;
 
 /*
  * Compile time maths functions

@@ -6,8 +6,7 @@
 #include <string>
 #include <sstream>
 #include <fstream>
-#include <utility>
-#include <initializer_list>
+//#include <initializer_list>
 #include <spud>
 #include <boost/archive/binary_oarchive.hpp>
 #include <boost/archive/text_oarchive.hpp>
@@ -32,8 +31,13 @@ template<size_t Dim>
 class Simulation
 {
 public:
+	/*
+	 * Useful typedefs
+	 */
 	typedef sim::Particle<Dim,2,2> particle_type;
-	typedef std::list<particle_type,boost::fast_pool_allocator<particle_type>> plist_type;
+	typedef fast_list<particle_type> plist_type;
+	typedef MainList<particle_type>  mainplist_type;
+
 
 	Simulation();
 	virtual ~Simulation(){};
@@ -58,8 +62,8 @@ public:
 
 	const Parameters<Dim>& parameters() const;
 	const vector<Fluid>& fluidPhases() const;
-	const plist_type& fluidParticles() const;
-	const plist_type& wallParticles() const;
+	const mainplist_type& fluidParticles() const;
+	const mainplist_type& wallParticles() const;
 
 private:
 
@@ -78,19 +82,21 @@ private:
 	Parameters<Dim>		params; // physical parameters
 	std::vector<Fluid>	fluids; // fluid parameters
 
-	// lists for particles
+	/*
+	 * The various lists used for the simulations. For boost::intrusive::lists
+	 * The list itself does not perform any allocation/deallocation so we must
+	 * manage the memory ourselves. To do this we use the variable
+	 * particle_store, so that whenever we add a particle to the simulation
+	 * we add it to this list which does manage the memory.
+	 */
+
 	plist_type particle_store;
+	MainList<particle_type>	fluid_particles;
+	MainList<particle_type>	wall_particles;
 
-	MainList<particle_type>		fluid_particles;
-	MainList<particle_type>		wall_particles;
-	NeighbourList<particle_type>	recv_particles[hc_elements(Dim)];
-	NeighbourList<particle_type>	send_particles[hc_elements(Dim)];
-
-	// for serializing the boost::intrusive::lists
-	template<template<class T_> class ListT = NeighbourList>
-	using ListSerializer_t = ListSerializer<ListT,std::list,particle_type,boost::fast_pool_allocator<particle_type>> ;
-	ListSerializer_t<> send_serializer[hc_elements(Dim)];
-	ListSerializer_t<> recv_serializer[hc_elements(Dim)];
+	// stuff for sending across mpi
+	fast_list<std::pair<particle_type,particle_type*> > recv_particles[hc_elements(Dim)];
+	fast_list<std::pair<particle_type,particle_type*> > send_particles[hc_elements(Dim)];
 
 	LinkedCellGrid<Dim,particle_type> cells;
 };
@@ -157,13 +163,6 @@ void Simulation<Dim>::init()
 	cells.init(cell_sizes,lnum_cells[comm_rank],ldomain.lower);
 
 	//cout << "P" << comm_rank <<" : " << ldomain.lower << "->" << ldomain.upper << "\t" << lnum_cells[comm_rank] << "\t" << cells.lower << endl;
-
-	// set up serializers for MPI communication
-	for(size_t i=0;i<hc_elements(Dim);++i)
-	{
-		send_serializer[i] = ListSerializer_t<>(particle_store,send_particles[i]);
-		recv_serializer[i] = ListSerializer_t<>(particle_store,recv_particles[i]);
-	}
 }
 
 template<size_t Dim>
@@ -503,13 +502,13 @@ void Simulation<Dim>::assignParticleIds()
 }
 
 template<size_t Dim>
-const typename Simulation<Dim>::plist_type& Simulation<Dim>::fluidParticles() const
+const MainList<typename Simulation<Dim>::particle_type >& Simulation<Dim>::fluidParticles() const
 {
 	return fluid_particles;
 }
 
 template<size_t Dim>
-const typename Simulation<Dim>::plist_type& Simulation<Dim>::wallParticles() const
+const MainList<typename Simulation<Dim>::particle_type >& Simulation<Dim>::wallParticles() const
 {
 	return wall_particles;
 }
@@ -521,8 +520,8 @@ void Simulation<Dim>::serialize(Archive& a, const unsigned int version)
 	a & gdomain;
 	a & ldomain;
 	a & fluids;
-	ListSerializer_t<MainList> f_serializer(particle_store,fluid_particles);
-	ListSerializer_t<MainList> w_serializer(particle_store,wall_particles);
+	ListSerializer<MainList<particle_type>, plist_type, particle_type> f_serializer(particle_store,fluid_particles);
+	ListSerializer<MainList<particle_type>, plist_type, particle_type> w_serializer(particle_store,wall_particles);
 	a & f_serializer;
 	a & w_serializer;
 }

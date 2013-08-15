@@ -37,10 +37,6 @@ int run_main(int argc, char* argv[])
 	boost::mpi::environment env(argc,argv,true);
 	boost::mpi::communicator comm;
 
-	/*
-	 * TEST
-	 */
-
 	Simulation<DIM> theSim;
 
 	// currently only takes one argument - the config file name
