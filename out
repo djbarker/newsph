@@ -1,0 +1,17 @@
+Loading walls.
+Water
+Air
+Cell sizes: (2.02429,2.02429) * h
+Domain decomposition: (3,3)
+Filling region 'Fill'
+Done Fill
+t = 0
+t = 1e-05
+
+=====================================================================================
+=   BAD TERMINATION OF ONE OF YOUR APPLICATION PROCESSES
+=   EXIT CODE: 139
+=   CLEANING UP REMAINING PROCESSES
+=   YOU CAN IGNORE THE BELOW CLEANUP MESSAGES
+=====================================================================================
+APPLICATION TERMINATED WITH THE EXIT STRING: Segmentation fault (signal 11)

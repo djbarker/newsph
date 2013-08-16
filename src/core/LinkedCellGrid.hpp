@@ -130,7 +130,7 @@ LCGList<T>& LinkedCellGrid<Dim,T,Padding>::getCell(size_t idx)
 template<size_t Dim, typename T, size_t Padding>
 Extent<Dim> LinkedCellGrid<Dim,T,Padding>::cellCount() const
 {
-	return Extent<Dim>(cell_counts_unpadded);
+	return vect_cast<size_t>(cell_counts_unpadded);
 }
 
 /*
@@ -190,9 +190,8 @@ void LinkedCellGrid<Dim,T,Padding>::clear()
  */
 
 /*
- * Adds the data in the specified border region to the given NeighbourList.
- * Note this doesn't copy the data so the resulting NeighoourList refers to the
- * actual fluid particles.
+ * Returns a copy of the particles in the specified border region along
+ * with a pointer to the original for later updating.
  */
 template<size_t Dim, class T, size_t Padding>
 template<size_t Loc>

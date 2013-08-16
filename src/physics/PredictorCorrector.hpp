@@ -38,7 +38,7 @@ void PredictorCorrectorUpdater<1>::operator() (PType& part)
 		part.vel[1] = part.vel[0] + part.acc*dt/(2.0_number);
 
 		part.pos[0] = 2.0_number*part.pos[1] - part.pos[0];
-		part.vel[1] = 2.0_number*part.vel[1] - part.vel[0];
+		part.vel[0] = 2.0_number*part.vel[1] - part.vel[0];
 }
 
 }

@@ -51,42 +51,55 @@ int run_main(int argc, char* argv[])
 	{
 		if(comm.rank()==0) cout << "t = " << t << endl;
 
-		// set values to zero
-		theSim.applyFunctions(physics::ResetVals<DIM>());
+		/*
+		 * Half-step
+		 */
 
-		if(comm.rank()==0) cout << "Rest values." << endl;
-
+		theSim.applyFunctions(physics::ResetVals<DIM>());	// set values to zero
 		theSim.placeParticlesIntoLinkedCellGrid(0);
-
-		if(comm.rank()==0) cout << "Placed into LCG." << endl;
-
 		theSim.exchangeFull();
-
-		if(comm.rank()==0) cout << "Exchanged." << endl;
 
 		// calculate sigma
 		theSim.doSPHSum<kernels::WendlandQuintic>(0u,physics::SigmaCalc<DIM>());
-
-		if(comm.rank()==0) cout << "Sigma." << endl;
-
 		theSim.exchangeData();
 
-		if(comm.rank()==0) cout << "Exchange data." << endl;
+		theSim.writeOutput(file_number);
+		file_number++;
 
 		// calculate density then pressure
 		theSim.applyFunctions(physics::DensityCalc<DIM>(theSim),physics::TaitEquation<DIM>(theSim));
 
-		if(comm.rank()==0) cout << "Density/Tait." << endl;
-
 		// calculate acceleration
 		theSim.doSPHSum<kernels::WendlandQuintic>(0u,physics::GradPCalc<DIM>(),physics::ViscCalc<DIM,0>());
 
-		if(comm.rank()==0) cout << "GradP/Visc." << endl;
+		// move particles
+		theSim.applyFunctions(physics::PredictorCorrectorUpdater<0>(theSim.parameters().dt));
+
+		/*
+		 * Full step
+		 */
+
+		theSim.applyFunctions(physics::ResetVals<DIM>());	// set values to zero
+		theSim.placeParticlesIntoLinkedCellGrid(1);
+		theSim.exchangeFull();
+
+		// calculate sigma
+		theSim.doSPHSum<kernels::WendlandQuintic>(1u,physics::SigmaCalc<DIM>());
+		theSim.exchangeData();
+
+		// calculate density then pressure
+		theSim.applyFunctions(physics::DensityCalc<DIM>(theSim),physics::TaitEquation<DIM>(theSim));
+
+		// calculate acceleration
+		theSim.doSPHSum<kernels::WendlandQuintic>(1u,physics::GradPCalc<DIM>(),physics::ViscCalc<DIM,1>());
+
+		// move particles
+		theSim.applyFunctions(physics::PredictorCorrectorUpdater<1>(theSim.parameters().dt));
 
 		theSim.writeOutput(file_number);
 		++file_number;
 
-		if(t>0.001) break;
+		if(t>4*discard_dims(theSim.parameters().dt)) break;
 	}
 
 	if(comm.rank()==0) cout << "Finished." << endl;

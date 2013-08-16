@@ -20,11 +20,15 @@ struct SigmaCalc {
 	template<class PType>
 	void operator() (PType& a, PType& b, const kernels::ParticleDelta<Dim>& delta, Simulation<Dim>& sim)
 	{
-		//cout << W_ab << endl;
-		a.sigma += delta.kernel;
+		//cout << delta.dist << ", " << delta.kernel << endl;
+		/*a.sigma += delta.kernel;
 
 		if(!a.is(b))
-			b.sigma += delta.kernel;
+			b.sigma += delta.kernel;*/
+
+		a.sigma += quantity<IntDim<0,-Dim,0>>(1.0);
+		//if(!a.is(b))
+		//	b.sigma += quantity<IntDim<0,-Dim,0>>(1.0);
 	}
 
 };
@@ -64,8 +68,8 @@ struct GradPCalc {
 		if(!a.is(b))
 		{
 			auto gradP = ((a.pressure*pow<-2>(a.sigma) + b.pressure*pow<-2>(b.sigma))*delta.grad*delta.unit);
-			a.acc += gradP/(sim.fluidPhases()[a.fluid].density*sim.parameters().V);
-			b.acc -= gradP/(sim.fluidPhases()[b.fluid].density*sim.parameters().V);
+			a.acc -= gradP/(sim.fluidPhases()[a.fluid].density*sim.parameters().V);
+			b.acc += gradP/(sim.fluidPhases()[b.fluid].density*sim.parameters().V);
 		}
 	}
 
@@ -99,7 +103,7 @@ struct TaitEquation {
 	void operator() (PType& part)
 	{
 		Fluid f = sim.fluidPhases()[part.fluid];
-		part.pressure = (f.density*pow<2>(f.speed_of_sound)/7.0_number)*( pow<7>(part.density[0]/f.density) - 1.0_number );
+		part.pressure = (f.density*pow<2>(f.speed_of_sound)/7.0_number)*( pow<7>(part.density[0]/f.density) - 1.0_number ) + sim.parameters().bkg_pressure;
 	}
 
 };

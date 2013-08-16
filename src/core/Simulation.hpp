@@ -150,7 +150,7 @@ void Simulation<Dim>::init()
 	domain_sub = idx_to_sub<Dim>((size_t)comm_rank,domain_counts);
 
 	// calculate the number of cells in the local domain
-	nvect<Dim,size_t> lnum_cells[comm_size];
+	Extent<Dim> lnum_cells[comm_size];
 	for(size_t i=0;i<Dim;++i)
 	{
 		if(domain_sub[i]<(int)(domain_counts[i]-global_cell_counts[i]%domain_counts[i]))
@@ -640,6 +640,10 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 			{
 				qvect<Dim,length>				   r_ab = (itr->pos[tstep]-part_b.pos[tstep]);
 				quantity<length>   			    dist_ab = r_ab.magnitude();
+
+				// skip if more than 2h away
+				if(dist_ab>=2.0_number*params.h) continue;
+
 				qvect<Dim,number>				unit_ab = r_ab/dist_ab;
 				quantity<IntDim<0,-(int)Dim,0>>    W_ab = Kernel<Dim>::Kernel(dist_ab,params.h);
 				quantity<IntDim<0,-1-(int)Dim,0>> dW_ab = Kernel<Dim>::Grad(dist_ab,params.h);
@@ -660,8 +664,6 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 		if(itr==wall_particles.end())
 			break;
 	}
-
-	comm.barrier();
 }
 
 /*

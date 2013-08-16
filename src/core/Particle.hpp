@@ -79,6 +79,7 @@ Particle<Dim,TStep,NCol>::Particle(const Particle<Dim,TStep,NCol>& part)
 ,wall(part.wall)
 ,id(part.id)
 ,type(part.type)
+,acc(part.acc)
 ,sigma(part.sigma)
 ,pressure(part.pressure)
 {
@@ -105,6 +106,7 @@ Particle<Dim,TStep,NCol>& Particle<Dim,TStep,NCol>::operator=(const Particle<Dim
 		id = part.id;
 		type = part.type;
 		sigma = part.sigma;
+		acc = part.acc;
 		pressure = part.pressure;
 
 		for(size_t t=0;t<TStep;++t)
@@ -128,8 +130,8 @@ void Particle<Dim,TStep,NCol>::serialize(Archive& a, const unsigned int version)
 	a & fluid;
 	a & wall;
 	a & id;
-	a & type;
-	a & pos; // boost automatically handles arrays
+	//a & type; // note: boost tries to cast to the enum type for us which doesn't work with skeleton/content mechanism
+	a & pos;	 // note: boost automatically handles static arrays
 	a & vel;
 	a & acc;
 	a & sigma;
@@ -151,6 +153,8 @@ std::ostream& operator<<(std::ostream& out, const sim::Particle<Dim,TStep,NCol>&
 	out << " id=" << part.id << " | " << "type=" << part.type << " | ";
 	for(size_t t=0;t<TStep;++t)
 		out << "pos[" << t << "]=" << part.pos[t] << " | ";
+	for(size_t t=0;t<TStep;++t)
+		out << "vel[" << t << "]=" << part.vel[t] << " | ";
 	out << '}';
 	return out;
 }
