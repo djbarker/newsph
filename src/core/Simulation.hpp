@@ -18,6 +18,7 @@
 #include "Fluid.h"
 #include "Region.hpp"
 #include "../utils/utils.hpp"
+#include "../utils/ParticleException.hpp"
 #include "../kernels/ParticleDelta.hpp"
 
 namespace sim
@@ -63,6 +64,7 @@ public:
 	// Simulate
 	void exchangeFull();
 	void exchangeData();
+	void exchangeOutOfBounds();
 	void placeParticlesIntoLinkedCellGrid(size_t tstep);
 	template<template<int> class K, typename... Fs> void doSPHSum(size_t tstep, Fs&&... fs);
 	template<typename... Fs> void applyFunctions(Fs&&... fs);
@@ -101,7 +103,7 @@ private:
 	MainList<particle_type>	fluid_particles;
 	MainList<particle_type>	wall_particles;
 
-	// bufferes for sending across mpi
+	// buffers for sending across mpi
 	fast_list<std::pair<particle_type,particle_type*> > recv_particles[hc_elements(Dim)];
 	fast_list<std::pair<particle_type,particle_type*> > send_particles[hc_elements(Dim)];
 
@@ -114,6 +116,8 @@ private:
 	static size_t			send_tags[hc_elements(Dim)];
 	static size_t			recv_tags[hc_elements(Dim)];
 
+	// stencil used for iterating nearby cell
+	std::vector<Subscript<Dim>> stencil;
 
 	LinkedCellGrid<Dim,particle_type> cells;
 };
@@ -201,6 +205,9 @@ void Simulation<Dim>::init()
 				dest_periods[i][d] = PeriodDirec::NoCross;
 		}
 	}
+
+	// store stencil for later
+	stencil = getStencil();
 }
 
 template<size_t Dim>
@@ -319,6 +326,10 @@ void Simulation<Dim>::loadConfigXML(std::string fname)
 	}
 
 	params.V = pow<Dim>(params.dx);
+
+	// TODO: update for arbitrary dims
+	if(comm_rank==0)
+		cout << "Avg number of neighbours: " << floor(dims::pi*pow<2>(number_t<>(2.0)*params.h)/params.V) << endl;
 
 	if(comm_rank==0)
 	{
@@ -599,7 +610,39 @@ const vector<Fluid>& Simulation<Dim>::fluidPhases() const
 	return fluids;
 }
 
-/*
+/**
+ * Swap particles which have moved out of our local domain so that
+ * they reside on the correct processor and then delete them from this
+ * processor. This is based on the position at tstep=0
+ */
+template<size_t Dim>
+void Simulation<Dim>::exchangeOutOfBounds()
+{
+	plist_type to_transfer[hc_elements(Dim)];
+
+	/*
+	 * First get all the fluid particles which are outside the domain then put them in the list to_transfer
+	 */
+	auto outside = [&](const particle_type& Part)->bool{
+		return !ldomain.inside(Part.pos[0]);
+	};
+
+	auto dispose = [&](particle_type* pPart)->void {
+		to_transfer[comm_rank].push_back(*pPart);
+	};
+
+	fluid_particles.remove_and_dispose_if(outside,dispose);
+
+	/*
+	 * Then send the list to_transfer to all other processors while receiving their lists.
+	 */
+	for(size_t proc=0; proc<comm_size;++proc)
+	{
+		boost::mpi::broadcast(comm,to_transfer[proc],proc);
+	}
+}
+
+/**
  * This function puts wall_particles and fluid_particles into the correct sublists based
  * upon their positions at the specified timestep.
  */
@@ -612,7 +655,7 @@ void Simulation<Dim>::placeParticlesIntoLinkedCellGrid(size_t tstep)
 	cells.place(wall_particles, tstep);
 }
 
-/*
+/**
  * This function is used to actually perform the SPH sums over fluid & wall
  * particles. It accepts any callable objects of the form
  *
@@ -626,23 +669,43 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 {
 	static_assert(sizeof...(Fs)>0,"No operations passed to doSPHSum()!");
 
-	auto neighbour_cells = getStencil();
-
 	auto itr = fluid_particles.begin();
 	while(true)
 	{
+		// safety check
+		if(!ldomain.inside(itr->pos[tstep]))
+		{
+			throw ParticleException<particle_type>(*itr,"Particle out of domain!");
+		}
+
 		Subscript<Dim> x_sub = cells.posToSub(itr->pos[tstep]);
 
 		// iterate over nearby particles
-		for(Subscript<Dim> dcell : neighbour_cells)
+		for(Subscript<Dim>& dcell : stencil)
 		{
-			for(particle_type& part_b : cells.getCell(cells.subToIdx(x_sub+dcell)))
+			typename LCGList<particle_type>::iterator sub_itr;
+
+			if(dcell==make_vect<Dim,int>(0))
 			{
-				qvect<Dim,length>				   r_ab = (itr->pos[tstep]-part_b.pos[tstep]);
-				quantity<length>   			    dist_ab = r_ab.magnitude();
+				sub_itr = cells.getCell(cells.subToIdx(x_sub)).iterator_to(*itr);
+			}
+			else
+			{
+				sub_itr = cells.getCell(cells.subToIdx(x_sub+dcell)).begin();
+			}
+
+			auto sub_end = cells.getCell(cells.subToIdx(x_sub+dcell)).end();
+			while(sub_itr!=sub_end)
+			{
+				qvect<Dim,length>	r_ab = (itr->pos[tstep]-sub_itr->pos[tstep]);
+				quantity<length>	dist_ab = r_ab.magnitude();
 
 				// skip if more than 2h away
-				if(dist_ab>=2.0_number*params.h) continue;
+				if(dist_ab>=2.0_number*params.h)
+				{
+					++sub_itr;
+					continue;
+				}
 
 				qvect<Dim,number>				unit_ab = r_ab/dist_ab;
 				quantity<IntDim<0,-(int)Dim,0>>    W_ab = Kernel<Dim>::Kernel(dist_ab,params.h);
@@ -650,9 +713,11 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 
 				// for explanation of this line see: http://stackoverflow.com/questions/18077259/variadic-function-accepting-functors-callable-objects
 				auto dummylist = {
-						((void)std::forward<Fs>(fs)(*itr,part_b,kernels::ParticleDelta<Dim>{dist_ab,unit_ab,W_ab,dW_ab},*this),0)...
+						((void)std::forward<Fs>(fs)(*itr,*sub_itr,kernels::ParticleDelta<Dim>{dist_ab,unit_ab,W_ab,dW_ab},*this),0)...
 					};
 				(void)dummylist; // stop the compiler warning about unused variable
+
+				++sub_itr;
 			}
 		}
 
@@ -666,7 +731,7 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 	}
 }
 
-/*
+/**
  * This funciton is used to apply functions / transformations to fluid and wall
  * particles. It accepts any callable objects of the form
  *
@@ -684,7 +749,7 @@ void Simulation<Dim>::applyFunctions(Fs&&... fs)
 	while(true)
 	{
 		// for explanation of this line see: http://stackoverflow.com/questions/18077259/variadic-function-accepting-functors-callable-objects
-		auto dummylist = { ((void)std::forward<Fs>(fs)(*itr),0)... };
+		auto dummylist = { ((void)std::forward<Fs>(fs)(*itr,*this),0)... };
 		(void) dummylist; // hide warning about unused variable
 
 		++itr;

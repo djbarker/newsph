@@ -20,21 +20,19 @@ struct SigmaCalc {
 	template<class PType>
 	void operator() (PType& a, PType& b, const kernels::ParticleDelta<Dim>& delta, Simulation<Dim>& sim)
 	{
-		//cout << delta.dist << ", " << delta.kernel << endl;
-		/*a.sigma += delta.kernel;
-
+		a.sigma += delta.kernel;
 		if(!a.is(b))
-			b.sigma += delta.kernel;*/
+			b.sigma += delta.kernel;
 
-		a.sigma += quantity<IntDim<0,-Dim,0>>(1.0);
-		//if(!a.is(b))
-		//	b.sigma += quantity<IntDim<0,-Dim,0>>(1.0);
+		/*a.sigma += quantity<IntDim<0,-Dim,0>>(1.0);
+		if(!a.is(b))
+			b.sigma += quantity<IntDim<0,-Dim,0>>(1.0);*/
 	}
 
 };
 
 /*
- * Calculates the viscosity of the fluids particls
+ * Calculates the viscosity of the fluid particles
  */
 
 template<int Dim, size_t Tstep>
@@ -82,7 +80,7 @@ template<int Dim>
 struct ResetVals {
 
 	template<class PType>
-	void operator() (PType& part)
+	void operator() (PType& part, Simulation<Dim>& sim)
 	{
 		part.sigma = quantity<IntDim<0,-Dim,0>>(0.0);
 		part.acc = make_vect<Dim,quantity<acceleration>>(0.0); // expands to (0.,0.,...) depending on Dim
@@ -94,18 +92,12 @@ struct ResetVals {
  */
 template<int Dim>
 struct TaitEquation {
-
-	Simulation<Dim>& sim;
-
-	TaitEquation(Simulation<Dim>& s):sim(s){}
-
 	template<class PType>
-	void operator() (PType& part)
+	void operator() (PType& part, Simulation<Dim>& sim)
 	{
-		Fluid f = sim.fluidPhases()[part.fluid];
+		const Fluid& f = sim.fluidPhases()[part.fluid];
 		part.pressure = (f.density*pow<2>(f.speed_of_sound)/7.0_number)*( pow<7>(part.density[0]/f.density) - 1.0_number ) + sim.parameters().bkg_pressure;
 	}
-
 };
 
 /*
@@ -113,18 +105,12 @@ struct TaitEquation {
  */
 template<int Dim>
 struct DensityCalc {
-
-	Simulation<Dim>& sim;
-
-	DensityCalc(Simulation<Dim>& s):sim(s){}
-
 	template<class PType>
-	void operator() (PType& part)
+	void operator() (PType& part, Simulation<Dim>& sim)
 	{
-		Fluid f = sim.fluidPhases()[part.fluid];
+		const Fluid& f = sim.fluidPhases()[part.fluid];
 		part.density[0] = part.sigma*f.density*sim.parameters().V;
 	}
-
 };
 
 }

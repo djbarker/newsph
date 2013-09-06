@@ -83,7 +83,7 @@ void LinkedCellGrid<Dim,T,Padding>::init(qvect<Dim,length> cell_sizes, Extent<Di
 	cells.resize(ncells);
 }
 
-/*
+/**
  * The convert the index of a cell to a subscript. The subscript does not include
  * padding so in 2D - for example - the first cell has subscript (-Paddding,-Padding)
  * but index 0.
@@ -94,7 +94,7 @@ Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::idxToSub(size_t idx)
 	return idx_to_sub(idx,cell_counts)-make_vect<Dim,int>(Padding);
 }
 
-/*
+/**
  * Convert a subscript to a cell index. This automatically accounts for padding.
  * So in 2D - for example - the subscript (-P,-P) returns the index zero, where
  * P is the number of padding cells.
@@ -105,7 +105,7 @@ size_t LinkedCellGrid<Dim,T,Padding>::subToIdx(const Subscript<Dim>& sub)
 	return sub_to_idx(sub+make_vect<Dim,int>(Padding),cell_counts);
 }
 
-/*
+/**
  * Returns the correct subscript for a position. Note, if the position is
  * inside the lower-left padded region - say - then it will return (-1,-1).
  */
@@ -115,7 +115,7 @@ Subscript<Dim> LinkedCellGrid<Dim,T,Padding>::posToSub(const nvect<Dim,quantity<
 	return vect_cast<int>(utils::discard_dims((pos-lower)/cell_sizes)); // "cast" to int
 }
 
-/*
+/**
  * Returns the list of particle pointers which corresponds to the given index.
  */
 template<size_t Dim, typename T, size_t Padding>
@@ -124,7 +124,7 @@ LCGList<T>& LinkedCellGrid<Dim,T,Padding>::getCell(size_t idx)
 	return cells[idx];
 }
 
-/*
+/**
  * Returns the unpadded cell count in each direction.
  */
 template<size_t Dim, typename T, size_t Padding>
@@ -133,8 +133,8 @@ Extent<Dim> LinkedCellGrid<Dim,T,Padding>::cellCount() const
 	return vect_cast<size_t>(cell_counts_unpadded);
 }
 
-/*
- * Put particles into the correct cells
+/**
+ * Put a list of particles into the correct cells
  */
 template<size_t Dim, typename T, size_t Padding>
 template<class BoostIntrusiveList>
@@ -143,7 +143,7 @@ void LinkedCellGrid<Dim,T,Padding>::place(BoostIntrusiveList& list, size_t tstep
 	for(T& particle : list)	place(particle,tstep);
 }
 
-/*
+/**
  * Place an individual particle into the correct cell
  */
 template<size_t Dim, typename T, size_t Padding>
@@ -152,7 +152,7 @@ void LinkedCellGrid<Dim,T,Padding>::place(T& part, size_t tstep)
 	cells[subToIdx(posToSub(part.pos[tstep]))].push_back(part);
 }
 
-/*
+/**
  * Appends the contents of the cell specified by a subscript to the list
  * given as the first paramter. Note that this copies the data.
  */
@@ -164,7 +164,7 @@ void LinkedCellGrid<Dim,T,Padding>::appendCellContents(fast_list<std::pair<T,T*>
 		out.push_back(make_pair(part,&part));
 }
 
-/*
+/**
  * Clears all particles from the linked cell grid.
  */
 template<size_t Dim, typename T, size_t Padding>
@@ -189,7 +189,7 @@ void LinkedCellGrid<Dim,T,Padding>::clear()
  * message would be like trying to read Linear A)
  */
 
-/*
+/**
  * Returns a copy of the particles in the specified border region along
  * with a pointer to the original for later updating.
  */
@@ -211,7 +211,7 @@ fast_list<std::pair<T,T*>> LinkedCellGrid<Dim,T,Padding>::getBorder()
 	return list;
 }
 
-/*
+/**
  * Clears the padding at the specified location. Note that this doesn't delete
  * the particles it just removes them from the linked cell grid.
  */

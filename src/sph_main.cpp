@@ -9,6 +9,7 @@
 #include "physics/Sigma.hpp"
 #include "kernels/WendlandQuintic.hpp"
 
+//if unspecified default to 2 dimensions
 #ifndef DIM
 #define DIM 2
 #endif
@@ -22,8 +23,9 @@ using namespace dims;
  */
 // TODO: use extern templates to speed compilation
 // TODO: change linked cell grid to boost::multi_array
+// TODO: use boost::program_options to get cmd line args
 
-int run_main(int argc, char* argv[])
+int run_main(int argc, char* argv[], boost::mpi::environment& env)
 {
 	if(argc<2)
 	{
@@ -31,10 +33,10 @@ int run_main(int argc, char* argv[])
 		return 1;
 	}
 
+	throw runtime_error("TODO: Transfer moved particles accross processor boundaried!");
+
 	cout << std::boolalpha;
 
-	// setup mpi
-	boost::mpi::environment env(argc,argv,true);
 	boost::mpi::communicator comm;
 
 	Simulation<DIM> theSim;
@@ -57,44 +59,69 @@ int run_main(int argc, char* argv[])
 
 		theSim.applyFunctions(physics::ResetVals<DIM>());	// set values to zero
 		theSim.placeParticlesIntoLinkedCellGrid(0);
+
+		comm.barrier();
 		theSim.exchangeFull();
 
+		comm.barrier();
+		if(comm.rank()==0) cout << "HERE 0" << endl;
+
 		// calculate sigma
-		theSim.doSPHSum<kernels::WendlandQuintic>(0u,physics::SigmaCalc<DIM>());
+		theSim.doSPHSum<kernels::WendlandQuintic>(0,physics::SigmaCalc<DIM>());
+		if(comm.rank()==0) cout << "HERE 0.1" << endl;
 		theSim.exchangeData();
 
-		theSim.writeOutput(file_number);
-		file_number++;
+		if(comm.rank()==0) cout << "HERE 1" << endl;
 
 		// calculate density then pressure
-		theSim.applyFunctions(physics::DensityCalc<DIM>(theSim),physics::TaitEquation<DIM>(theSim));
+		theSim.applyFunctions(physics::DensityCalc<DIM>(),physics::TaitEquation<DIM>());
+
+		if(comm.rank()==0) cout << "HERE 2" << endl;
 
 		// calculate acceleration
-		theSim.doSPHSum<kernels::WendlandQuintic>(0u,physics::GradPCalc<DIM>(),physics::ViscCalc<DIM,0>());
+		theSim.doSPHSum<kernels::WendlandQuintic>(0,physics::GradPCalc<DIM>(),physics::ViscCalc<DIM,0>());
+
+		if(comm.rank()==0) cout << "HERE 3" << endl;
 
 		// move particles
-		theSim.applyFunctions(physics::PredictorCorrectorUpdater<0>(theSim.parameters().dt));
+		theSim.applyFunctions(physics::PredictorCorrectorUpdater<0,DIM>());
+
+		if(comm.rank()==0) cout << "HERE 4" << endl;
 
 		/*
 		 * Full step
 		 */
 
+		if(comm.rank()==0) cout << "HERE 5" << endl;
+
 		theSim.applyFunctions(physics::ResetVals<DIM>());	// set values to zero
+		if(comm.rank()==0) cout << "HERE 5.1" << endl;
 		theSim.placeParticlesIntoLinkedCellGrid(1);
+		if(comm.rank()==0) cout << "HERE 5.2" << endl;
 		theSim.exchangeFull();
 
+		if(comm.rank()==0) cout << "HERE 6" << endl;
+
 		// calculate sigma
-		theSim.doSPHSum<kernels::WendlandQuintic>(1u,physics::SigmaCalc<DIM>());
+		theSim.doSPHSum<kernels::WendlandQuintic>(1,physics::SigmaCalc<DIM>());
 		theSim.exchangeData();
 
+		if(comm.rank()==0) cout << "HERE 7" << endl;
+
 		// calculate density then pressure
-		theSim.applyFunctions(physics::DensityCalc<DIM>(theSim),physics::TaitEquation<DIM>(theSim));
+		theSim.applyFunctions(physics::DensityCalc<DIM>(),physics::TaitEquation<DIM>());
+
+		if(comm.rank()==0) cout << "HERE 8" << endl;
 
 		// calculate acceleration
-		theSim.doSPHSum<kernels::WendlandQuintic>(1u,physics::GradPCalc<DIM>(),physics::ViscCalc<DIM,1>());
+		theSim.doSPHSum<kernels::WendlandQuintic>(1,physics::GradPCalc<DIM>(),physics::ViscCalc<DIM,1>());
+
+		if(comm.rank()==0) cout << "HERE 9" << endl;
 
 		// move particles
-		theSim.applyFunctions(physics::PredictorCorrectorUpdater<1>(theSim.parameters().dt));
+		theSim.applyFunctions(physics::PredictorCorrectorUpdater<1,DIM>());
+
+		if(comm.rank()==0) cout << "HERE 10" << endl;
 
 		theSim.writeOutput(file_number);
 		++file_number;
@@ -109,13 +136,19 @@ int run_main(int argc, char* argv[])
 
 int main(int argc, char* argv[])
 {
+	// setup mpi
+	boost::mpi::environment env(argc,argv,true);
+	boost::mpi::communicator comm;
+
+	// run the program
 	try
 	{
-		return run_main(argc,argv);
+		return run_main(argc,argv,env);
 	}
 	catch(std::runtime_error& e)
 	{
-		cout << "std::runtime_error: " << e.what() << endl;
+		cout << "[Proc " << comm.rank() << "] std::runtime_error (or derived): " << e.what() << endl;
+		env.abort(1);
 	}
 
 	return 1;

@@ -53,9 +53,12 @@ template<> Subscript<2> Simulation<2>::shifts[8] = { {-1, 0}, // left
 template<> size_t Simulation<2>::send_tags[8] = { Left, Right, Top, Bottom, Bottom|Left, Top|Left, Top|Right, Bottom|Right };
 template<> size_t Simulation<2>::recv_tags[8] = { Right, Left, Bottom, Top, Top|Right, Bottom|Right, Bottom|Left, Top|Left }; // The process to our left (for example) is sending data to its right.
 
-/*
+/**
  * Exchanges particles at the border with neighbouring processes and places
- * the received particles into the linked cell grid.
+ * the received particles into the linked cell grid. Note that this just
+ * means each processor can see the particles of neighbouring processors
+ * if a particle moves such that it now needs to be handled by a different
+ * processor then exchangeOutOfBounds() must be called.
  */
 template<>
 void Simulation<2>::exchangeFull()
@@ -67,18 +70,17 @@ void Simulation<2>::exchangeFull()
 			{
 					for(int i=-1;i<(int)cells.cellCount()[0]+1;++i)
 					{
-							/*bool out = false;
-							auto tmp = Subscript<2>(i,j);
-							if( _lcg_impl<2,particle_type,1,Bottom>::paddingMin(cells) <= tmp && tmp < _lcg_impl<2,particle_type,1,Bottom>::paddingMax(cells)  )
-							{
-									out = true;
-									cout << "#";
-							}
-
-							if(!out)
-							{
-									cout << ".";
-							}
+							//bool out = false;
+							//auto tmp = Subscript<2>(i,j);
+							//if( _lcg_impl<2,particle_type,1,Bottom>::paddingMin(cells) <= tmp && tmp < _lcg_impl<2,particle_type,1,Bottom>::paddingMax(cells)  )
+							//{
+							//		out = true;
+							//		cout << "#";
+							//}
+							//if(!out)
+							//{
+							//		cout << ".";
+							//}
 							cout << cells.getCell(cells.subToIdx(Subscript<2>(i,j))).size();
 
 							cout << "\t";
@@ -186,7 +188,7 @@ void Simulation<2>::exchangeFull()
 	}
 }
 
-/*
+/**
  * Doesn't exchange the particles themselves or place them into the lcg
  * it just updates the values on previously exchanged particles.
  */
@@ -204,16 +206,28 @@ void Simulation<2>::exchangeData()
 	mpi::request reqs[hc_elements(2)*2];
 	for(size_t i=0;i<hc_elements(2);++i)
 	{
+		comm.barrier();
+		if(comm_rank==0) cout << "HERE A i=" << i << endl;
+
 		// copy the calculated values into our send buffered particles
-		for(auto& list : send_particles)
-			for(auto& ppair : list)
-				ppair.first = *ppair.second;
+		for(auto& ppair : send_particles[i])
+			ppair.first = *ppair.second;
+
+		comm.barrier();
+		if(comm_rank==0) cout << "HERE B i=" << i << endl;
 
 		// exchange
 		sc[i] = mpi::get_content(send_particles[i]);
 		rc[i] = mpi::get_content(recv_particles[i]);
+
+		comm.barrier();
+		if(comm_rank==0) cout << "HERE C i=" << i << endl;
+
 		reqs[i*2]   = comm.isend(dest_ranks[i],send_tags[i],sc[i]);
 		reqs[i*2+1] = comm.irecv(dest_ranks[i],recv_tags[i],rc[i]);
+		comm.barrier();
+		if(comm_rank==0) cout << "HERE D i=" << i << endl;
+
 	}
 
 	// wait for data exchange to finish
@@ -250,8 +264,7 @@ void Simulation<2>::exchangeData()
 template<>
 vector<Subscript<2>> Simulation<2>::getStencil()
 {
-	vector<Subscript<2>> out = { {+1,+1}, {+0,+1}, {-1,+1}, {-1,+0}, {+0,+0} };
-	return out;
+	return { {+1,+1}, {+0,+1}, {-1,+1}, {-1,+0}, {+0,+0} };
 }
 
 template<>
