@@ -33,8 +33,6 @@ int run_main(int argc, char* argv[], boost::mpi::environment& env)
 		return 1;
 	}
 
-	throw runtime_error("TODO: Transfer moved particles accross processor boundaried!");
-
 	cout << std::boolalpha;
 
 	boost::mpi::communicator comm;
@@ -92,12 +90,19 @@ int run_main(int argc, char* argv[], boost::mpi::environment& env)
 		 * Full step
 		 */
 
+		theSim.exchangeOutOfBounds(1);
+
+		comm.barrier();
 		if(comm.rank()==0) cout << "HERE 5" << endl;
 
 		theSim.applyFunctions(physics::ResetVals<DIM>());	// set values to zero
+		comm.barrier();
 		if(comm.rank()==0) cout << "HERE 5.1" << endl;
+
 		theSim.placeParticlesIntoLinkedCellGrid(1);
+		comm.barrier();
 		if(comm.rank()==0) cout << "HERE 5.2" << endl;
+
 		theSim.exchangeFull();
 
 		if(comm.rank()==0) cout << "HERE 6" << endl;
@@ -122,6 +127,8 @@ int run_main(int argc, char* argv[], boost::mpi::environment& env)
 		theSim.applyFunctions(physics::PredictorCorrectorUpdater<1,DIM>());
 
 		if(comm.rank()==0) cout << "HERE 10" << endl;
+
+		theSim.exchangeOutOfBounds(0);
 
 		theSim.writeOutput(file_number);
 		++file_number;

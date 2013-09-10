@@ -34,8 +34,7 @@ void Simulation<2>::floodFill(const Region<2>& region, const nvect<2,quantity<po
 
 			if(ldomain.inside(part.pos[0]))
 			{
-				particle_store.push_back(part);
-				fluid_particles.push_back(particle_store.back());
+				fluid_particles.push_back(part);
 			}
 		}
 }
@@ -206,28 +205,15 @@ void Simulation<2>::exchangeData()
 	mpi::request reqs[hc_elements(2)*2];
 	for(size_t i=0;i<hc_elements(2);++i)
 	{
-		comm.barrier();
-		if(comm_rank==0) cout << "HERE A i=" << i << endl;
-
 		// copy the calculated values into our send buffered particles
 		for(auto& ppair : send_particles[i])
 			ppair.first = *ppair.second;
 
-		comm.barrier();
-		if(comm_rank==0) cout << "HERE B i=" << i << endl;
-
 		// exchange
 		sc[i] = mpi::get_content(send_particles[i]);
 		rc[i] = mpi::get_content(recv_particles[i]);
-
-		comm.barrier();
-		if(comm_rank==0) cout << "HERE C i=" << i << endl;
-
 		reqs[i*2]   = comm.isend(dest_ranks[i],send_tags[i],sc[i]);
 		reqs[i*2+1] = comm.irecv(dest_ranks[i],recv_tags[i],rc[i]);
-		comm.barrier();
-		if(comm_rank==0) cout << "HERE D i=" << i << endl;
-
 	}
 
 	// wait for data exchange to finish

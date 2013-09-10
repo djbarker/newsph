@@ -64,7 +64,7 @@ public:
 	// Simulate
 	void exchangeFull();
 	void exchangeData();
-	void exchangeOutOfBounds();
+	void exchangeOutOfBounds(size_t tstep);
 	void placeParticlesIntoLinkedCellGrid(size_t tstep);
 	template<template<int> class K, typename... Fs> void doSPHSum(size_t tstep, Fs&&... fs);
 	template<typename... Fs> void applyFunctions(Fs&&... fs);
@@ -86,22 +86,15 @@ private:
 	Subscript<Dim> domain_sub;    // local domain "subscript" within all procs
 	Region<Dim>	   gdomain;       // global domain extent
 	Region<Dim>	   ldomain;       // local domain extent
+	Region<Dim>	   pdomain;		  // padded local domain extent
 
 	std::string			root;   // output filename root
 	Parameters<Dim>		params; // physical parameters
 	std::vector<Fluid>	fluids; // fluid parameters
 
-	/*
-	 * The various lists used for the simulations. For boost::intrusive::lists
-	 * The list itself does not perform any allocation/deallocation so we must
-	 * manage the memory ourselves. To do this we use the variable
-	 * particle_store, so that whenever we add a particle to the simulation
-	 * we add it to this list which does manage the memory.
-	 */
-
-	plist_type particle_store;
-	MainList<particle_type>	fluid_particles;
-	MainList<particle_type>	wall_particles;
+	// lists for storing particles
+	plist_type fluid_particles;
+	plist_type wall_particles;
 
 	// buffers for sending across mpi
 	fast_list<std::pair<particle_type,particle_type*> > recv_particles[hc_elements(Dim)];
@@ -179,6 +172,11 @@ void Simulation<Dim>::init()
 		}
 
 	ldomain.upper = ldomain.lower + dom_sizes;
+
+	// TODO: should depend on padding of LCG
+	pdomain = ldomain;
+	pdomain.lower -= cell_sizes;
+	pdomain.upper += cell_sizes;
 
 	// initialize the linked cell grid.
 	cells.init(cell_sizes,lnum_cells[comm_rank],ldomain.lower);
@@ -569,10 +567,8 @@ void Simulation<Dim>::serialize(Archive& a, const unsigned int version)
 	a & gdomain;
 	a & ldomain;
 	a & fluids;
-	ListSerializer<MainList<particle_type>, plist_type, particle_type> f_serializer(particle_store,fluid_particles);
-	ListSerializer<MainList<particle_type>, plist_type, particle_type> w_serializer(particle_store,wall_particles);
-	a & f_serializer;
-	a & w_serializer;
+	a & fluid_particles;
+	a & wall_particles;
 }
 
 //BOOST_CLASS_VERSION(Simulation<2>,0)
@@ -616,29 +612,49 @@ const vector<Fluid>& Simulation<Dim>::fluidPhases() const
  * processor. This is based on the position at tstep=0
  */
 template<size_t Dim>
-void Simulation<Dim>::exchangeOutOfBounds()
+void Simulation<Dim>::exchangeOutOfBounds(size_t tstep)
 {
-	plist_type to_transfer[hc_elements(Dim)];
-
 	/*
+	 * Note: the current method is pretty brute force, it involves sending all out of bounds particles
+	 * to all processors then letting the receiving procs deal with them!
+	 *
 	 * First get all the fluid particles which are outside the domain then put them in the list to_transfer
 	 */
-	auto outside = [&](const particle_type& Part)->bool{
-		return !ldomain.inside(Part.pos[0]);
-	};
 
-	auto dispose = [&](particle_type* pPart)->void {
-		to_transfer[comm_rank].push_back(*pPart);
-	};
+	cells.clear(); // unhook everything from sublists
 
-	fluid_particles.remove_and_dispose_if(outside,dispose);
+	std::vector<plist_type> to_transfer;
+	to_transfer.resize(comm_size);
+
+	auto itr = fluid_particles.begin();
+	while(itr!=fluid_particles.end())
+	{
+		if(!ldomain.inside(itr->pos[tstep]))
+		{
+			to_transfer[comm_rank].push_back(*itr);
+			itr = fluid_particles.erase(itr);
+		}
+		else
+			++itr;
+	}
 
 	/*
 	 * Then send the list to_transfer to all other processors while receiving their lists.
 	 */
 	for(size_t proc=0; proc<comm_size;++proc)
 	{
+		comm.barrier(); // is this necessary?
 		boost::mpi::broadcast(comm,to_transfer[proc],proc);
+
+		if(proc!=comm_rank)
+		{
+			for(auto& part : to_transfer[proc])
+			{
+				// if the particle is in our domain keep it
+				if(ldomain.inside(part.pos[tstep]))
+					fluid_particles.push_back(part);
+			}
+		}
 	}
 }
 
@@ -675,7 +691,7 @@ void Simulation<Dim>::doSPHSum(size_t tstep, Fs&&... fs)
 		// safety check
 		if(!ldomain.inside(itr->pos[tstep]))
 		{
-			throw ParticleException<particle_type>(*itr,"Particle out of domain!");
+			throw ParticleException<particle_type>(*itr,"Particle out of domain");
 		}
 
 		Subscript<Dim> x_sub = cells.posToSub(itr->pos[tstep]);
