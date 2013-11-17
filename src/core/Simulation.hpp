@@ -112,7 +112,7 @@ private:
 	// stencil used for iterating nearby cell
 	std::vector<Subscript<Dim>> stencil;
 
-	LinkedCellGrid<Dim,particle_type> cells;
+	LinkedCellGrid<Dim,particle_type,1> cells;
 };
 
 template<size_t Dim>
